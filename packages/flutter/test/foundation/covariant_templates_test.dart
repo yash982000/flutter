@@ -9,7 +9,7 @@ class X {}
 class Y extends X {}
 
 class A<U extends X> {
-  U u;
+  U? u;
 }
 
 void main() {
@@ -18,6 +18,6 @@ void main() {
     final A<X> ayAsAx = ay;
     expect(() {
       ayAsAx.u = X();
-    }, throwsAssertionError);
+    }, throwsA(isA<TypeError>()));
   });
 }

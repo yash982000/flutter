@@ -32,13 +32,13 @@ class Evaluation {
   final bool passed;
 
   /// If [passed] is false, contains the reason for failure.
-  final String reason;
+  final String? reason;
 
   /// Combines two evaluation results.
   ///
   /// The [reason] will be concatenated with a newline, and [passed] will be
   /// combined with an `&&` operator.
-  Evaluation operator +(Evaluation other) {
+  Evaluation operator +(Evaluation? other) {
     if (other == null)
       return this;
     final StringBuffer buffer = StringBuffer();
@@ -81,7 +81,7 @@ class MinimumTapTargetGuideline extends AccessibilityGuideline {
 
   @override
   FutureOr<Evaluation> evaluate(WidgetTester tester) {
-    final SemanticsNode root = tester.binding.pipelineOwner.semanticsOwner.rootSemanticsNode;
+    final SemanticsNode root = tester.binding.pipelineOwner.semanticsOwner!.rootSemanticsNode!;
     Evaluation traverse(SemanticsNode node) {
       Evaluation result = const Evaluation.pass();
       node.visitChildren((SemanticsNode child) {
@@ -97,10 +97,10 @@ class MinimumTapTargetGuideline extends AccessibilityGuideline {
         || data.hasFlag(ui.SemanticsFlag.isHidden))
         return result;
       Rect paintBounds = node.rect;
-      SemanticsNode current = node;
+      SemanticsNode? current = node;
       while (current != null) {
         if (current.transform != null)
-          paintBounds = MatrixUtils.transformRect(current.transform, paintBounds);
+          paintBounds = MatrixUtils.transformRect(current.transform!, paintBounds);
         current = current.parent;
       }
       // skip node if it is touching the edge of the screen, since it might
@@ -138,7 +138,7 @@ class LabeledTapTargetGuideline extends AccessibilityGuideline {
 
   @override
   FutureOr<Evaluation> evaluate(WidgetTester tester) {
-    final SemanticsNode root = tester.binding.pipelineOwner.semanticsOwner.rootSemanticsNode;
+    final SemanticsNode root = tester.binding.pipelineOwner.semanticsOwner!.rootSemanticsNode!;
     Evaluation traverse(SemanticsNode node) {
       Evaluation result = const Evaluation.pass();
       node.visitChildren((SemanticsNode child) {
@@ -192,18 +192,21 @@ class MinimumTextContrastGuideline extends AccessibilityGuideline {
   /// Defined by http://www.w3.org/TR/UNDERSTANDING-WCAG20/visual-audio-contrast-contrast.html
   static const double kMinimumRatioLargeText = 3.0;
 
+  static const double _kDefaultFontSize = 12.0;
+
   @override
   Future<Evaluation> evaluate(WidgetTester tester) async {
-    final SemanticsNode root = tester.binding.pipelineOwner.semanticsOwner.rootSemanticsNode;
+    final SemanticsNode root = tester.binding.pipelineOwner.semanticsOwner!.rootSemanticsNode!;
     final RenderView renderView = tester.binding.renderView;
-    final OffsetLayer layer = renderView.debugLayer as OffsetLayer;
-    ui.Image image;
-    final ByteData byteData = await tester.binding.runAsync<ByteData>(() async {
+    final OffsetLayer layer = renderView.debugLayer! as OffsetLayer;
+    ui.Image? image;
+    final ByteData byteData = (await tester.binding.runAsync<ByteData?>(() async {
       // Needs to be the same pixel ratio otherwise our dimensions won't match the
       // last transform layer.
       image = await layer.toImage(renderView.paintBounds, pixelRatio: 1 / tester.binding.window.devicePixelRatio);
-      return image.toByteData();
-    });
+      return image!.toByteData();
+    }))!;
+    assert(image != null);
 
     Future<Evaluation> evaluateNode(SemanticsNode node) async {
       Evaluation result = const Evaluation.pass();
@@ -224,33 +227,32 @@ class MinimumTextContrastGuideline extends AccessibilityGuideline {
 
       // We need to look up the inherited text properties to determine the
       // contrast ratio based on text size/weight.
-      double fontSize;
+      double? fontSize;
       bool isBold;
-      final String text = (data.label?.isEmpty == true) ? data.value : data.label;
+      final String text = data.label.isEmpty ? data.value : data.label;
       final List<Element> elements = find.text(text).hitTestable().evaluate().toList();
       Rect paintBounds;
       if (elements.length == 1) {
         final Element element = elements.single;
-        final RenderBox renderObject = element.renderObject as RenderBox;
-        element.renderObject.paintBounds;
+        assert(element.renderObject != null && element.renderObject is RenderBox);
+        final RenderBox renderObject = element.renderObject! as RenderBox;
         paintBounds = Rect.fromPoints(
-          renderObject.localToGlobal(element.renderObject.paintBounds.topLeft - const Offset(4.0, 4.0)),
-          renderObject.localToGlobal(element.renderObject.paintBounds.bottomRight + const Offset(4.0, 4.0)),
+          renderObject.localToGlobal(renderObject.paintBounds.topLeft - const Offset(4.0, 4.0)),
+          renderObject.localToGlobal(renderObject.paintBounds.bottomRight + const Offset(4.0, 4.0)),
         );
         final Widget widget = element.widget;
         final DefaultTextStyle defaultTextStyle = DefaultTextStyle.of(element);
         if (widget is Text) {
-          TextStyle effectiveTextStyle = widget.style;
-          if (widget.style == null || widget.style.inherit) {
-            effectiveTextStyle = defaultTextStyle.style.merge(widget.style);
-          }
+          final TextStyle effectiveTextStyle = widget.style == null || widget.style!.inherit
+              ? defaultTextStyle.style.merge(widget.style)
+              : widget.style!;
           fontSize = effectiveTextStyle.fontSize;
           isBold = effectiveTextStyle.fontWeight == FontWeight.bold;
         } else if (widget is EditableText) {
           isBold = widget.style.fontWeight == FontWeight.bold;
           fontSize = widget.style.fontSize;
         } else {
-          assert(false);
+          throw StateError('Unexpected widget type: ${widget.runtimeType}');
         }
       } else if (elements.length > 1) {
         return Evaluation.fail('Multiple nodes with the same label: ${data.label}\n');
@@ -263,16 +265,20 @@ class MinimumTextContrastGuideline extends AccessibilityGuideline {
       if (_isNodeOffScreen(paintBounds, tester.binding.window)) {
         return result;
       }
-      final List<int> subset = _subsetToRect(byteData, paintBounds, image.width, image.height);
+      final List<int> subset = _colorsWithinRect(byteData, paintBounds, image!.width, image!.height);
       // Node was too far off screen.
       if (subset.isEmpty) {
         return result;
       }
       final _ContrastReport report = _ContrastReport(subset);
+      // If rectangle is empty, pass the test.
+      if (report.isEmptyRect) {
+        return result;
+      }
       final double contrastRatio = report.contrastRatio();
       const double delta = -0.01;
       double targetContrastRatio;
-      if ((isBold && fontSize > kBoldTextMinimumSize) || (fontSize ?? 12.0) > kLargeTextMinimumSize) {
+      if ((isBold && (fontSize ?? _kDefaultFontSize) > kBoldTextMinimumSize) || (fontSize ?? _kDefaultFontSize) > kLargeTextMinimumSize) {
         targetContrastRatio = kMinimumRatioLargeText;
       } else {
         targetContrastRatio = kMinimumRatioNormalText;
@@ -295,7 +301,7 @@ class MinimumTextContrastGuideline extends AccessibilityGuideline {
   bool _shouldSkipNode(SemanticsData data) {
     if (data.hasFlag(ui.SemanticsFlag.scopesRoute))
       return true;
-    if (data.label?.trim()?.isEmpty == true && data.value?.trim()?.isEmpty == true)
+    if (data.label.trim().isEmpty && data.value.trim().isEmpty)
       return true;
     return false;
   }
@@ -305,47 +311,138 @@ class MinimumTextContrastGuideline extends AccessibilityGuideline {
   // Given a pixel buffer based on the physical window size, can we actually
   // get all the data from this node? allow a small delta overlap before
   // culling the node.
-  bool _isNodeOffScreen(Rect paintBounds, ui.Window window) {
+  bool _isNodeOffScreen(Rect paintBounds, ui.FlutterView window) {
     return paintBounds.top < -50.0
       || paintBounds.left <  -50.0
       || paintBounds.bottom > (window.physicalSize.height * window.devicePixelRatio) + 50.0
       || paintBounds.right > (window.physicalSize.width * window.devicePixelRatio)  + 50.0;
   }
 
-  List<int> _subsetToRect(ByteData data, Rect paintBounds, int width, int height) {
-    final int newWidth = paintBounds.size.width.ceil();
-    final int newHeight = paintBounds.size.height.ceil();
-    final int leftX = paintBounds.topLeft.dx.ceil();
-    final int rightX = leftX + newWidth;
-    final int topY = paintBounds.topLeft.dy.ceil();
-    final int bottomY = topY + newHeight;
-    final List<int> buffer = <int>[];
-
-    // Data is stored in row major order.
-    for (int i = 0; i < data.lengthInBytes; i+=4) {
-      final int index = i ~/ 4;
-      final int dx = index % width;
-      final int dy = index ~/ width;
-      if (dx >= leftX && dx <= rightX && dy >= topY && dy <= bottomY) {
-        final int r = data.getUint8(i);
-        final int g = data.getUint8(i + 1);
-        final int b = data.getUint8(i + 2);
-        final int a = data.getUint8(i + 3);
-        final int color = (((a & 0xff) << 24) |
-          ((r & 0xff) << 16) |
-          ((g & 0xff) << 8)  |
-          ((b & 0xff) << 0)) & 0xFFFFFFFF;
-        buffer.add(color);
-      }
-    }
-    return buffer;
-  }
-
   @override
   String get description => 'Text contrast should follow WCAG guidelines';
 }
 
+/// A guideline which verifies that all elements specified by [finder]
+/// meet minimum contrast levels.
+class CustomMinimumContrastGuideline extends AccessibilityGuideline {
+  /// Creates a custom guideline which verifies that all elements specified
+  /// by [finder] meet minimum contrast levels.
+  ///
+  /// An optional description string can be given using the [description] parameter.
+  const CustomMinimumContrastGuideline({
+    required this.finder,
+    this.minimumRatio = 4.5,
+    this.tolerance = 0.01,
+    String description = 'Contrast should follow custom guidelines',
+  }) : _description = description;
+
+  /// The minimum contrast ratio allowed.
+  ///
+  /// Defaults to 4.5, the minimum contrast
+  /// ratio for normal text, defined by WCAG.
+  /// See http://www.w3.org/TR/UNDERSTANDING-WCAG20/visual-audio-contrast-contrast.html.
+  final double minimumRatio;
+
+  /// Tolerance for minimum contrast ratio.
+  ///
+  /// Any contrast ratio greater than [minimumRatio] or within a distance of [tolerance]
+  /// from [minimumRatio] passes the test.
+  /// Defaults to 0.01.
+  final double tolerance;
+
+  /// The [Finder] used to find a subset of elements.
+  ///
+  /// [finder] determines which subset of elements will be tested for
+  /// contrast ratio.
+  final Finder finder;
+
+  final String _description;
+
+  @override
+  String get description => _description;
+
+  @override
+  Future<Evaluation> evaluate(WidgetTester tester) async {
+    // Compute elements to be evaluated.
+
+    final List<Element> elements = finder.evaluate().toList();
+
+    // Obtain rendered image.
+
+    final RenderView renderView = tester.binding.renderView;
+    final OffsetLayer layer = renderView.debugLayer! as OffsetLayer;
+    ui.Image? image;
+    final ByteData byteData = (await tester.binding.runAsync<ByteData?>(() async {
+      // Needs to be the same pixel ratio otherwise our dimensions won't match the
+      // last transform layer.
+      image = await layer.toImage(renderView.paintBounds, pixelRatio: 1 / tester.binding.window.devicePixelRatio);
+      return image!.toByteData();
+    }))!;
+    assert(image != null);
+
+    // How to evaluate a single element.
+
+    Evaluation evaluateElement(Element element) {
+      final RenderBox renderObject = element.renderObject! as RenderBox;
+
+      final Rect originalPaintBounds = renderObject.paintBounds;
+
+      final Rect inflatedPaintBounds = originalPaintBounds.inflate(4.0);
+
+      final Rect paintBounds = Rect.fromPoints(
+        renderObject.localToGlobal(inflatedPaintBounds.topLeft),
+        renderObject.localToGlobal(inflatedPaintBounds.bottomRight),
+      );
+
+      final List<int> subset = _colorsWithinRect(byteData, paintBounds, image!.width, image!.height);
+
+      if (subset.isEmpty) {
+        return const Evaluation.pass();
+      }
+
+      final _ContrastReport report = _ContrastReport(subset);
+      final double contrastRatio = report.contrastRatio();
+
+      if (report.isEmptyRect || contrastRatio >= minimumRatio - tolerance) {
+        return const Evaluation.pass();
+      } else {
+        return Evaluation.fail(
+            '$element:\nExpected contrast ratio of at least '
+                '$minimumRatio but found ${contrastRatio.toStringAsFixed(2)} \n'
+                'The computed light color was: ${report.lightColor}, '
+                'The computed dark color was: ${report.darkColor}\n'
+                '$description'
+        );
+      }
+    }
+
+    // Collate all evaluations into a final evaluation, then return.
+
+    Evaluation result = const Evaluation.pass();
+
+    for (final Element element in elements) {
+      result = result + evaluateElement(element);
+    }
+
+    return result;
+  }
+}
+
+/// A class that reports the contrast ratio of a part of the screen.
+///
+/// Commonly used in accessibility testing to obtain the contrast ratio of
+/// text widgets and other types of widgets.
 class _ContrastReport {
+  /// Generates a contrast report given a list of colors.
+  ///
+  /// Given a list of integers [colors], each representing the color of a pixel
+  /// on a part of the screen, generates a contrast ratio report.
+  /// Each colors is given in in ARGB format, as is the parameter for the
+  /// constructor [Color].
+  ///
+  /// The contrast ratio of the most frequent light color and the most
+  /// frequent dark color is calculated. Colors are divided into light and
+  /// dark colors based on their lightness as an [HSLColor].
   factory _ContrastReport(List<int> colors) {
     final Map<int, int> colorHistogram = <int, int>{};
     for (final int color in colors) {
@@ -360,7 +457,7 @@ class _ContrastReport {
     double averageLightness = 0.0;
     for (final int color in colorHistogram.keys) {
       final HSLColor hslColor = HSLColor.fromColor(Color(color));
-      averageLightness += hslColor.lightness * colorHistogram[color];
+      averageLightness += hslColor.lightness * colorHistogram[color]!;
     }
     averageLightness /= colors.length;
     assert(averageLightness != double.nan);
@@ -380,14 +477,50 @@ class _ContrastReport {
         lightCount = count;
       }
     }
-    assert (lightColor != 0 && darkColor != 0);
-    return _ContrastReport._(Color(lightColor), Color(darkColor));
+    // Depending on the number of colors present, return the correct contrast
+    // report.
+    if (lightCount > 0 && darkCount > 0) {
+      return _ContrastReport._(Color(lightColor), Color(darkColor));
+    } else if (lightCount > 0) {
+      return _ContrastReport.singleColor(Color(lightColor));
+    } else if (darkCount > 0) {
+      return _ContrastReport.singleColor(Color(darkColor));
+    } else {
+      return const _ContrastReport.emptyRect();
+    }
   }
 
-  const _ContrastReport._(this.lightColor, this.darkColor);
+  const _ContrastReport._(this.lightColor, this.darkColor)
+      : isSingleColor = false,
+        isEmptyRect = false;
 
+  const _ContrastReport.singleColor(Color color)
+      : lightColor = color,
+        darkColor = color,
+        isSingleColor = true,
+        isEmptyRect = false;
+
+  const _ContrastReport.emptyRect()
+      : lightColor = _transparent,
+        darkColor = _transparent,
+        isSingleColor = false,
+        isEmptyRect = true;
+
+  static const Color _transparent = Color(0x00000000);
+
+  /// The most frequently occurring light color. Uses [Colors.transparent] if
+  /// the rectangle is empty.
   final Color lightColor;
+
+  /// The most frequently occurring dark color. Uses [Colors.transparent] if
+  /// the rectangle is empty.
   final Color darkColor;
+
+  /// Whether the rectangle contains only one color.
+  final bool isSingleColor;
+
+  /// Whether the rectangle contains 0 pixels.
+  final bool isEmptyRect;
 
   /// Computes the contrast ratio as defined by the WCAG.
   ///
@@ -417,6 +550,51 @@ class _ContrastReport {
       b = math.pow((b + 0.055)/ 1.055, 2.4).toDouble();
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }
+}
+
+/// Gives the colors of all pixels inside a given rectangle on the screen.
+///
+/// Given a [ByteData] object [data], which stores the color of each pixel
+/// in row-first order, where each pixel is given in 4 bytes in RGBA order,
+/// and [paintBounds], the rectangle,
+/// and [width] and [height], the dimensions of the [ByteData],
+/// returns a list of the colors of all pixels within the rectangle in
+/// row-first order.
+///
+/// In the returned list, each color is represented as a 32-bit integer
+/// in ARGB format, similar to the parameter for the [Color] constructor.
+List<int> _colorsWithinRect(ByteData data, Rect paintBounds, int width, int height) {
+  final Rect truePaintBounds = paintBounds.intersect(
+    Rect.fromLTWH(0.0, 0.0, width.toDouble(), height.toDouble()),
+  );
+
+  final int leftX   = truePaintBounds.left.floor();
+  final int rightX  = truePaintBounds.right.ceil();
+  final int topY    = truePaintBounds.top.floor();
+  final int bottomY = truePaintBounds.bottom.ceil();
+
+  final List<int> buffer = <int>[];
+
+  int _getPixel(ByteData data, int x, int y) {
+    final int offset = (y * width + x) * 4;
+    final int r = data.getUint8(offset);
+    final int g = data.getUint8(offset + 1);
+    final int b = data.getUint8(offset + 2);
+    final int a = data.getUint8(offset + 3);
+    final int color = (((a & 0xff) << 24) |
+    ((r & 0xff) << 16) |
+    ((g & 0xff) << 8)  |
+    ((b & 0xff) << 0)) & 0xFFFFFFFF;
+    return color;
+  }
+
+  for (int x = leftX; x < rightX; x ++) {
+    for (int y = topY; y < bottomY; y ++) {
+      buffer.add(_getPixel(data, x, y));
+    }
+  }
+
+  return buffer;
 }
 
 /// A guideline which requires tappable semantic nodes a minimum size of 48 by 48.

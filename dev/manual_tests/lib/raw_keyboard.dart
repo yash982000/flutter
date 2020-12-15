@@ -2,23 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-// Sets a platform override for desktop to avoid exceptions. See
-// https://flutter.dev/desktop#target-platform-override for more info.
-// TODO(gspencergoog): Remove once TargetPlatform includes all desktop platforms.
-void _enablePlatformOverrideForDesktop() {
-  if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
-    debugDefaultTargetPlatformOverride = TargetPlatform.fuchsia;
-  }
-}
-
 void main() {
-  _enablePlatformOverrideForDesktop();
   runApp(MaterialApp(
     title: 'Hardware Key Demo',
     home: Scaffold(
@@ -49,11 +37,11 @@ class _HardwareKeyDemoState extends State<RawKeyboardDemo> {
     super.dispose();
   }
 
-  bool _handleKeyEvent(FocusNode node, RawKeyEvent event) {
+  KeyEventResult _handleKeyEvent(FocusNode node, RawKeyEvent event) {
     setState(() {
       _event = event;
     });
-    return false;
+    return KeyEventResult.ignored;
   }
 
   String _asHex(int value) => value != null ? '0x${value.toRadixString(16)}' : 'null';
@@ -79,18 +67,19 @@ class _HardwareKeyDemoState extends State<RawKeyboardDemo> {
               onTap: () {
                 _focusNode.requestFocus();
               },
-              child: Text('Tap to focus', style: textTheme.display1),
+              child: Text('Tap to focus', style: textTheme.headline4),
             );
           }
 
           if (_event == null) {
-            return Text('Press a key', style: textTheme.display1);
+            return Text('Press a key', style: textTheme.headline4);
           }
 
           final RawKeyEventData data = _event.data;
           final String modifierList = data.modifiersPressed.keys.map<String>(_getEnumName).join(', ').replaceAll('Modifier', '');
           final List<Widget> dataText = <Widget>[
             Text('${_event.runtimeType}'),
+            if (_event.character?.isNotEmpty ?? false) Text('character produced: "${_event.character}"'),
             Text('modifiers set: $modifierList'),
           ];
           if (data is RawKeyEventDataAndroid) {
@@ -121,6 +110,15 @@ class _HardwareKeyDemoState extends State<RawKeyboardDemo> {
             dataText.add(Text('scanCode: ${data.scanCode}'));
             dataText.add(Text('unicodeScalarValues: ${data.unicodeScalarValues}'));
             dataText.add(Text('modifiers: ${data.modifiers} (${_asHex(data.modifiers)})'));
+          } else if (data is RawKeyEventDataWindows) {
+            dataText.add(Text('keyCode: ${data.keyCode} (${_asHex(data.keyCode)})'));
+            dataText.add(Text('scanCode: ${data.scanCode}'));
+            dataText.add(Text('characterCodePoint: ${data.characterCodePoint}'));
+            dataText.add(Text('modifiers: ${data.modifiers} (${_asHex(data.modifiers)})'));
+          } else if (data is RawKeyEventDataWeb) {
+            dataText.add(Text('key: ${data.key}'));
+            dataText.add(Text('code: ${data.code}'));
+            dataText.add(Text('metaState: ${data.metaState} (${_asHex(data.metaState)})'));
           }
           dataText.add(Text('logical: ${_event.logicalKey}'));
           dataText.add(Text('physical: ${_event.physicalKey}'));
@@ -136,8 +134,13 @@ class _HardwareKeyDemoState extends State<RawKeyboardDemo> {
               }
             }
           }
+          final List<String> pressed = <String>['Pressed:'];
+          for (final LogicalKeyboardKey key in RawKeyboard.instance.keysPressed) {
+            pressed.add(key.debugName);
+          }
+          dataText.add(Text(pressed.join(' ')));
           return DefaultTextStyle(
-            style: textTheme.subhead,
+            style: textTheme.subtitle1,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: dataText,

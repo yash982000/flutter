@@ -11,6 +11,44 @@ import 'package:flutter_test/flutter_test.dart';
 import '../widgets/semantics_tester.dart';
 
 void main() {
+  testWidgets('Scaffold drawer callback test', (WidgetTester tester) async {
+    bool isDrawerOpen = false;
+    bool isEndDrawerOpen = false;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+          drawer: Container(
+            color: Colors.blue,
+          ),
+          onDrawerChanged: (bool isOpen) {
+            isDrawerOpen = isOpen;
+          },
+          endDrawer: Container(
+            color: Colors.green,
+          ),
+          onEndDrawerChanged: (bool isOpen) {
+            isEndDrawerOpen = isOpen;
+          },
+          body: Container()),
+    ));
+
+    final ScaffoldState scaffoldState = tester.state(find.byType(Scaffold));
+
+    scaffoldState.openDrawer();
+    await tester.pumpAndSettle();
+    expect(true, isDrawerOpen);
+    scaffoldState.openEndDrawer();
+    await tester.pumpAndSettle();
+    expect(false, isDrawerOpen);
+
+    scaffoldState.openEndDrawer();
+    await tester.pumpAndSettle();
+    expect(true, isEndDrawerOpen);
+    scaffoldState.openDrawer();
+    await tester.pumpAndSettle();
+    expect(false, isEndDrawerOpen);
+  });
+
   testWidgets('Scaffold control test', (WidgetTester tester) async {
     final Key bodyKey = UniqueKey();
     Widget boilerplate(Widget child) {
@@ -296,7 +334,7 @@ void main() {
     expect(renderBox.size.height, equals(appBarHeight));
   });
 
-  Widget _buildStatusBarTestApp(TargetPlatform platform) {
+  Widget _buildStatusBarTestApp(TargetPlatform? platform) {
     return MaterialApp(
       theme: ThemeData(platform: platform),
       home: MediaQuery(
@@ -320,17 +358,17 @@ void main() {
     );
   }
 
-  testWidgets('Tapping the status bar scrolls to top on iOS', (WidgetTester tester) async {
-    await tester.pumpWidget(_buildStatusBarTestApp(TargetPlatform.iOS));
+  testWidgets('Tapping the status bar scrolls to top', (WidgetTester tester) async {
+    await tester.pumpWidget(_buildStatusBarTestApp(debugDefaultTargetPlatformOverride));
     final ScrollableState scrollable = tester.state(find.byType(Scrollable));
     scrollable.position.jumpTo(500.0);
     expect(scrollable.position.pixels, equals(500.0));
     await tester.tapAt(const Offset(100.0, 10.0));
     await tester.pumpAndSettle();
     expect(scrollable.position.pixels, equals(0.0));
-  });
+  }, variant: const TargetPlatformVariant(<TargetPlatform>{ TargetPlatform.iOS,  TargetPlatform.macOS }));
 
-  testWidgets('Tapping the status bar does not scroll to top on Android', (WidgetTester tester) async {
+  testWidgets('Tapping the status bar does not scroll to top', (WidgetTester tester) async {
     await tester.pumpWidget(_buildStatusBarTestApp(TargetPlatform.android));
     final ScrollableState scrollable = tester.state(find.byType(Scrollable));
     scrollable.position.jumpTo(500.0);
@@ -339,7 +377,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     expect(scrollable.position.pixels, equals(500.0));
-  });
+  }, variant: const TargetPlatformVariant(<TargetPlatform>{ TargetPlatform.android }));
 
   testWidgets('Bottom sheet cannot overlap app bar', (WidgetTester tester) async {
     final Key sheetKey = UniqueKey();
@@ -429,7 +467,7 @@ void main() {
             ),
           ),
           persistentFooterButtons: <Widget>[
-            FlatButton(
+            TextButton(
               onPressed: () {
                 didPressButton = true;
               },
@@ -506,7 +544,7 @@ void main() {
   });
 
   group('back arrow', () {
-    Future<void> expectBackIcon(WidgetTester tester, TargetPlatform platform, IconData expectedIcon) async {
+    Future<void> expectBackIcon(WidgetTester tester, IconData expectedIcon) async {
       final GlobalKey rootKey = GlobalKey();
       final Map<String, WidgetBuilder> routes = <String, WidgetBuilder>{
         '/': (_) => Container(key: rootKey, child: const Text('Home')),
@@ -515,11 +553,9 @@ void main() {
             body: const Text('Scaffold'),
         ),
       };
-      await tester.pumpWidget(
-        MaterialApp(theme: ThemeData(platform: platform), routes: routes)
-      );
+      await tester.pumpWidget(MaterialApp(routes: routes));
 
-      Navigator.pushNamed(rootKey.currentContext, '/scaffold');
+      Navigator.pushNamed(rootKey.currentContext!, '/scaffold');
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
 
@@ -527,24 +563,20 @@ void main() {
       expect(icon.icon, expectedIcon);
     }
 
-    testWidgets('Back arrow uses correct default on Android', (WidgetTester tester) async {
-      await expectBackIcon(tester, TargetPlatform.android, Icons.arrow_back);
-    });
+    testWidgets('Back arrow uses correct default', (WidgetTester tester) async {
+      await expectBackIcon(tester, Icons.arrow_back);
+    }, variant: const TargetPlatformVariant(<TargetPlatform>{ TargetPlatform.android, TargetPlatform.fuchsia }));
 
-    testWidgets('Back arrow uses correct default on Fuchsia', (WidgetTester tester) async {
-      await expectBackIcon(tester, TargetPlatform.fuchsia, Icons.arrow_back);
-    });
-
-    testWidgets('Back arrow uses correct default on iOS', (WidgetTester tester) async {
-      await expectBackIcon(tester, TargetPlatform.iOS, Icons.arrow_back_ios);
-    });
+    testWidgets('Back arrow uses correct default', (WidgetTester tester) async {
+      await expectBackIcon(tester, Icons.arrow_back_ios);
+    }, variant: const TargetPlatformVariant(<TargetPlatform>{ TargetPlatform.iOS,  TargetPlatform.macOS }));
   });
 
   group('close button', () {
-    Future<void> expectCloseIcon(WidgetTester tester, TargetPlatform platform, IconData expectedIcon, PageRoute<void> routeBuilder()) async {
+    Future<void> expectCloseIcon(WidgetTester tester, PageRoute<void> routeBuilder(), String type) async {
+      const IconData expectedIcon = Icons.close;
       await tester.pumpWidget(
         MaterialApp(
-          theme: ThemeData(platform: platform),
           home: Scaffold(appBar: AppBar(), body: const Text('Page 1')),
         ),
       );
@@ -555,8 +587,8 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
 
       final Icon icon = tester.widget(find.byType(Icon));
-      expect(icon.icon, expectedIcon);
-      expect(find.byType(CloseButton), findsOneWidget);
+      expect(icon.icon, expectedIcon, reason: "didn't find close icon for $type");
+      expect(find.byType(CloseButton), findsOneWidget, reason: "didn't find close button for $type");
     }
 
     PageRoute<void> materialRouteBuilder() {
@@ -586,41 +618,17 @@ void main() {
       );
     }
 
-    testWidgets('Close button shows correctly on Android', (WidgetTester tester) async {
-      await expectCloseIcon(tester, TargetPlatform.android, Icons.close, materialRouteBuilder);
-    });
+    testWidgets('Close button shows correctly', (WidgetTester tester) async {
+      await expectCloseIcon(tester, materialRouteBuilder, 'materialRouteBuilder');
+    }, variant: TargetPlatformVariant.all());
 
-    testWidgets('Close button shows correctly on Fuchsia', (WidgetTester tester) async {
-      await expectCloseIcon(tester, TargetPlatform.fuchsia, Icons.close, materialRouteBuilder);
-    });
+    testWidgets('Close button shows correctly with PageRouteBuilder', (WidgetTester tester) async {
+      await expectCloseIcon(tester, pageRouteBuilder, 'pageRouteBuilder');
+    }, variant: TargetPlatformVariant.all());
 
-    testWidgets('Close button shows correctly on iOS', (WidgetTester tester) async {
-      await expectCloseIcon(tester, TargetPlatform.iOS, Icons.close, materialRouteBuilder);
-    });
-
-    testWidgets('Close button shows correctly with PageRouteBuilder on Android', (WidgetTester tester) async {
-      await expectCloseIcon(tester, TargetPlatform.android, Icons.close, pageRouteBuilder);
-    });
-
-    testWidgets('Close button shows correctly with PageRouteBuilder on Fuchsia', (WidgetTester tester) async {
-      await expectCloseIcon(tester, TargetPlatform.fuchsia, Icons.close, pageRouteBuilder);
-    });
-
-    testWidgets('Close button shows correctly with PageRouteBuilder on iOS', (WidgetTester tester) async {
-      await expectCloseIcon(tester, TargetPlatform.iOS, Icons.close, pageRouteBuilder);
-    });
-
-    testWidgets('Close button shows correctly with custom page route on Android', (WidgetTester tester) async {
-      await expectCloseIcon(tester, TargetPlatform.android, Icons.close, customPageRouteBuilder);
-    });
-
-    testWidgets('Close button shows correctly with custom page route on Fuchsia', (WidgetTester tester) async {
-      await expectCloseIcon(tester, TargetPlatform.fuchsia, Icons.close, customPageRouteBuilder);
-    });
-
-    testWidgets('Close button shows correctly with custom page route on iOS', (WidgetTester tester) async {
-      await expectCloseIcon(tester, TargetPlatform.iOS, Icons.close, customPageRouteBuilder);
-    });
+    testWidgets('Close button shows correctly with custom page route', (WidgetTester tester) async {
+      await expectCloseIcon(tester, customPageRouteBuilder, 'customPageRouteBuilder');
+    }, variant: TargetPlatformVariant.all());
   });
 
   group('body size', () {
@@ -685,7 +693,7 @@ void main() {
         child: MediaQuery(
           data: const MediaQueryData(),
           child: Scaffold(
-            body: FlatButton(
+            body: TextButton(
               key: testKey,
               onPressed: () { },
               child: const Text(''),
@@ -693,15 +701,15 @@ void main() {
           ),
         ),
       ));
-      expect(tester.element(find.byKey(testKey)).size, const Size(88.0, 48.0));
+      expect(tester.element(find.byKey(testKey)).size, const Size(64.0, 48.0));
       expect(tester.renderObject<RenderBox>(find.byKey(testKey)).localToGlobal(Offset.zero), const Offset(0.0, 0.0));
     });
 
     testWidgets('body size with extendBody', (WidgetTester tester) async {
       final Key bodyKey = UniqueKey();
-      double mediaQueryBottom;
+      late double mediaQueryBottom;
 
-      Widget buildFrame({ bool extendBody, bool resizeToAvoidBottomInset, double viewInsetBottom = 0.0 }) {
+      Widget buildFrame({ required bool extendBody, bool? resizeToAvoidBottomInset, double viewInsetBottom = 0.0 }) {
         return Directionality(
           textDirection: TextDirection.ltr,
           child: MediaQuery(
@@ -760,10 +768,10 @@ void main() {
 
       const double appBarHeight = 100;
       const double windowPaddingTop = 24;
-      bool fixedHeightAppBar;
-      double mediaQueryTop;
+      late bool fixedHeightAppBar;
+      late double mediaQueryTop;
 
-      Widget buildFrame({ bool extendBodyBehindAppBar, bool hasAppBar }) {
+      Widget buildFrame({ required bool extendBodyBehindAppBar, required bool hasAppBar }) {
         return Directionality(
           textDirection: TextDirection.ltr,
           child: MediaQuery(
@@ -1145,17 +1153,25 @@ void main() {
         Scaffold(
           resizeToAvoidBottomInset: false,
           body: const Placeholder(),
-          bottomNavigationBar: BottomNavigationBar(
-            items: const <BottomNavigationBarItem>[
-              BottomNavigationBarItem(
-                icon: Icon(Icons.add),
-                title: Text('test'),
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.add),
-                title: Text('test'),
-              ),
-            ],
+          bottomNavigationBar: Navigator(
+            onGenerateRoute: (RouteSettings settings) {
+              return MaterialPageRoute<void>(
+                builder: (BuildContext context) {
+                  return BottomNavigationBar(
+                    items: const <BottomNavigationBarItem>[
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.add),
+                        label: 'test',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.add),
+                        label: 'test',
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
           ),
         ),
       );
@@ -1244,7 +1260,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       ScaffoldGeometry geometry = listenerState.cache.value;
-      final Rect transitioningFabRect = geometry.floatingActionButtonArea;
+      final Rect transitioningFabRect = geometry.floatingActionButtonArea!;
 
       final double transitioningRotation = tester.widget<RotationTransition>(
         find.byType(RotationTransition),
@@ -1269,17 +1285,17 @@ void main() {
       );
 
       expect(
-        geometry.floatingActionButtonArea.center,
+        geometry.floatingActionButtonArea!.center,
         transitioningFabRect.center,
       );
 
       expect(
-        geometry.floatingActionButtonArea.width,
+        geometry.floatingActionButtonArea!.width,
         greaterThan(transitioningFabRect.width),
       );
 
       expect(
-        geometry.floatingActionButtonArea.height,
+        geometry.floatingActionButtonArea!.height,
         greaterThan(transitioningFabRect.height),
       );
     });
@@ -1626,11 +1642,147 @@ void main() {
     expect(scaffoldState.isDrawerOpen, true);
   });
 
+  testWidgets('Drawer does not open with a drag gesture when it is disabled', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          drawer: const Drawer(
+            child: Text('Drawer'),
+          ),
+          drawerEnableOpenDragGesture: true,
+          body: const Text('Scaffold Body'),
+          appBar: AppBar(
+            centerTitle: true,
+            title: const Text('Title'),
+          ),
+        ),
+      ),
+    );
+    ScaffoldState scaffoldState = tester.state(find.byType(Scaffold));
+    expect(scaffoldState.isDrawerOpen, false);
+
+    // Test that we can open the drawer with a drag gesture when
+    // `Scaffold.drawerEnableDragGesture` is true.
+    await tester.dragFrom(const Offset(0, 100), const Offset(300, 0));
+    await tester.pumpAndSettle();
+    expect(scaffoldState.isDrawerOpen, true);
+
+    await tester.dragFrom(const Offset(300, 100), const Offset(-300, 0));
+    await tester.pumpAndSettle();
+    expect(scaffoldState.isDrawerOpen, false);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          drawer: const Drawer(
+            child: Text('Drawer'),
+          ),
+          drawerEnableOpenDragGesture: false,
+          body: const Text('Scaffold body'),
+          appBar: AppBar(
+            centerTitle: true,
+            title: const Text('Title'),
+          ),
+        ),
+      ),
+    );
+    scaffoldState = tester.state(find.byType(Scaffold));
+    expect(scaffoldState.isDrawerOpen, false);
+
+    // Test that we cannot open the drawer with a drag gesture when
+    // `Scaffold.drawerEnableDragGesture` is false.
+    await tester.dragFrom(const Offset(0, 100), const Offset(300, 0));
+    await tester.pumpAndSettle();
+    expect(scaffoldState.isDrawerOpen, false);
+
+    // Test that we can close drawer with a drag gesture when
+    // `Scaffold.drawerEnableDragGesture` is false.
+    final Finder drawerOpenButton = find.byType(IconButton).first;
+    await tester.tap(drawerOpenButton);
+    await tester.pumpAndSettle();
+    expect(scaffoldState.isDrawerOpen, true);
+
+    await tester.dragFrom(const Offset(300, 100), const Offset(-300, 0));
+    await tester.pumpAndSettle();
+    expect(scaffoldState.isDrawerOpen, false);
+  });
+
+  testWidgets('End drawer does not open with a drag gesture when it is disabled', (WidgetTester tester) async {
+    late double screenWidth;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (BuildContext context) {
+            screenWidth = MediaQuery.of(context).size.width;
+            return Scaffold(
+              endDrawer: const Drawer(
+                child: Text('Drawer'),
+              ),
+              endDrawerEnableOpenDragGesture: true,
+              body: const Text('Scaffold Body'),
+              appBar: AppBar(
+                centerTitle: true,
+                title: const Text('Title'),
+              ),
+            );
+          }
+        ),
+      ),
+    );
+    ScaffoldState scaffoldState = tester.state(find.byType(Scaffold));
+    expect(scaffoldState.isEndDrawerOpen, false);
+
+    // Test that we can open the end drawer with a drag gesture when
+    // `Scaffold.endDrawerEnableDragGesture` is true.
+    await tester.dragFrom(Offset(screenWidth - 1, 100), const Offset(-300, 0));
+    await tester.pumpAndSettle();
+    expect(scaffoldState.isEndDrawerOpen, true);
+
+    await tester.dragFrom(Offset(screenWidth - 300, 100), const Offset(300, 0));
+    await tester.pumpAndSettle();
+    expect(scaffoldState.isEndDrawerOpen, false);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          endDrawer: const Drawer(
+            child: Text('Drawer'),
+          ),
+          endDrawerEnableOpenDragGesture: false,
+          body: const Text('Scaffold body'),
+          appBar: AppBar(
+            centerTitle: true,
+            title: const Text('Title'),
+          ),
+        ),
+      ),
+    );
+    scaffoldState = tester.state(find.byType(Scaffold));
+    expect(scaffoldState.isEndDrawerOpen, false);
+
+    // Test that we cannot open the end drawer with a drag gesture when
+    // `Scaffold.endDrawerEnableDragGesture` is false.
+    await tester.dragFrom(Offset(screenWidth - 1, 100), const Offset(-300, 0));
+    await tester.pumpAndSettle();
+    expect(scaffoldState.isEndDrawerOpen, false);
+
+    // Test that we can close the end drawer a with drag gesture when
+    // `Scaffold.endDrawerEnableDragGesture` is false.
+    final Finder endDrawerOpenButton = find.byType(IconButton).first;
+    await tester.tap(endDrawerOpenButton);
+    await tester.pumpAndSettle();
+    expect(scaffoldState.isEndDrawerOpen, true);
+
+    await tester.dragFrom(Offset(screenWidth - 300, 100), const Offset(300, 0));
+    await tester.pumpAndSettle();
+    expect(scaffoldState.isEndDrawerOpen, false);
+  });
+
   testWidgets('Nested scaffold body insets', (WidgetTester tester) async {
     // Regression test for https://github.com/flutter/flutter/issues/20295
     final Key bodyKey = UniqueKey();
 
-    Widget buildFrame(bool innerResizeToAvoidBottomInset, bool outerResizeToAvoidBottomInset) {
+    Widget buildFrame(bool? innerResizeToAvoidBottomInset, bool? outerResizeToAvoidBottomInset) {
       return Directionality(
         textDirection: TextDirection.ltr,
         child: MediaQuery(
@@ -1694,9 +1846,9 @@ void main() {
             ),
           ),
         );
-        FlutterError error;
+        late FlutterError error;
         try {
-          key.currentState.showBottomSheet<void>((BuildContext context) {
+          key.currentState!.showBottomSheet<void>((BuildContext context) {
             final ThemeData themeData = Theme.of(context);
             return Container(
               decoration: BoxDecoration(
@@ -1720,8 +1872,8 @@ void main() {
           expect(error, isNotNull);
           expect(error.toStringDeep(), equalsIgnoringHashCodes(
             'FlutterError\n'
-            '   Scaffold.bottomSheet cannot be specified while a bottom\n'
-            '   sheetdisplayed with showBottomSheet() is still visible.\n'
+            '   Scaffold.bottomSheet cannot be specified while a bottom sheet\n'
+            '   displayed with showBottomSheet() is still visible.\n'
             '   Rebuild the Scaffold with a null bottomSheet before calling\n'
             '   showBottomSheet().\n',
           ));
@@ -1756,7 +1908,7 @@ void main() {
             ),
           ),
         );
-        key.currentState.showBottomSheet<void>((_) => Container());
+        key.currentState!.showBottomSheet<void>((_) => Container());
         await tester.tap(find.byKey(buttonKey));
         await tester.pump();
         expect(errors, isNotEmpty);
@@ -1824,7 +1976,7 @@ void main() {
           'the ScaffoldState rather than using the Scaffold.of() function.\n',
         ),
       );
-      expect(error.diagnostics[4], isInstanceOf<DiagnosticsProperty<Element>>());
+      expect(error.diagnostics[4], isA<DiagnosticsProperty<Element>>());
       expect(error.toStringDeep(),
         'FlutterError\n'
         '   Scaffold.of() called with a context that does not contain a\n'
@@ -1854,7 +2006,7 @@ void main() {
     });
 
     testWidgets('Call to Scaffold.geometryOf() without context', (WidgetTester tester) async {
-      ValueListenable<ScaffoldGeometry> geometry;
+      ValueListenable<ScaffoldGeometry>? geometry;
       await tester.pumpWidget(
         MaterialApp(
           home: Builder(
@@ -1893,7 +2045,7 @@ void main() {
           'Scaffold.geometryOf().\n',
         ),
       );
-      expect(error.diagnostics[4], isInstanceOf<DiagnosticsProperty<Element>>());
+      expect(error.diagnostics[4], isA<DiagnosticsProperty<Element>>());
       expect(error.toStringDeep(),
         'FlutterError\n'
         '   Scaffold.geometryOf() called with a context that does not contain\n'
@@ -1917,6 +2069,146 @@ void main() {
       );
       await tester.pumpAndSettle();
     });
+
+    testWidgets('FloatingActionButton always keeps the same position regardless of extendBodyBehindAppBar', (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          appBar: AppBar(),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () {},
+            child: const Icon(Icons.add),
+          ),
+          floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
+          extendBodyBehindAppBar: false,
+        ),
+      ));
+      final Offset defaultOffset = tester.getCenter(find.byType(FloatingActionButton));
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          appBar: AppBar(),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () {},
+            child: const Icon(Icons.add),
+          ),
+          floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
+          extendBodyBehindAppBar: true,
+        ),
+      ));
+      final Offset extendedBodyOffset = tester.getCenter(find.byType(FloatingActionButton));
+
+      expect(defaultOffset.dy, extendedBodyOffset.dy);
+    });
+  });
+
+  testWidgets('ScaffoldMessenger.maybeOf can return null if not found', (WidgetTester tester) async {
+    ScaffoldMessengerState? scaffoldMessenger;
+    const Key tapTarget = Key('tap-target');
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.ltr,
+      child: MediaQuery(
+        data: const MediaQueryData(),
+        child: Scaffold(
+          body: Builder(
+            builder: (BuildContext context) {
+              return GestureDetector(
+                onTap: () {
+                  scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  height: 100.0,
+                  width: 100.0,
+                  key: tapTarget,
+                ),
+              );
+            }
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.byKey(tapTarget));
+    await tester.pump();
+    expect(scaffoldMessenger, isNull);
+  });
+
+  testWidgets('ScaffoldMessenger.of will assert if not found', (WidgetTester tester) async {
+    const Key tapTarget = Key('tap-target');
+
+    final List<dynamic> exceptions = <dynamic>[];
+    final FlutterExceptionHandler? oldHandler = FlutterError.onError;
+    FlutterError.onError = (FlutterErrorDetails details) {
+      exceptions.add(details.exception);
+    };
+
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.ltr,
+      child: MediaQuery(
+        data: const MediaQueryData(),
+        child: Scaffold(
+          body: Builder(
+            builder: (BuildContext context) {
+              return GestureDetector(
+                onTap: () {
+                  ScaffoldMessenger.of(context);
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  height: 100.0,
+                  width: 100.0,
+                  key: tapTarget,
+                ),
+              );
+            }
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.byKey(tapTarget));
+    FlutterError.onError = oldHandler;
+
+    expect(exceptions.length, 1);
+    expect(exceptions.single.runtimeType, FlutterError);
+    final FlutterError error = exceptions.first as FlutterError;
+    expect(error.diagnostics.length, 5);
+    expect(error.diagnostics[2], isA<DiagnosticsProperty<Element>>());
+    expect(error.diagnostics[3], isA<DiagnosticsBlock>());
+    expect(error.diagnostics[4].level, DiagnosticLevel.hint);
+    expect(
+      error.diagnostics[4].toStringDeep(),
+      equalsIgnoringHashCodes(
+        'Typically, the ScaffoldMessenger widget is introduced by the\n'
+        'MaterialApp at the top of your application widget tree.\n',
+      ),
+    );
+    expect(error.toStringDeep(), equalsIgnoringHashCodes(
+      'FlutterError\n'
+      '   No ScaffoldMessenger widget found.\n'
+      '   Builder widgets require a ScaffoldMessenger widget ancestor.\n'
+      '   The specific widget that could not find a ScaffoldMessenger\n'
+      '   ancestor was:\n'
+      '     Builder\n'
+      '   The ancestors of this widget were:\n'
+      '     _BodyBuilder\n'
+      '     MediaQuery\n'
+      '     LayoutId-[<_ScaffoldSlot.body>]\n'
+      '     CustomMultiChildLayout\n'
+      '     AnimatedBuilder\n'
+      '     DefaultTextStyle\n'
+      '     AnimatedDefaultTextStyle\n'
+      '     _InkFeatures-[GlobalKey#00000 ink renderer]\n'
+      '     NotificationListener<LayoutChangedNotification>\n'
+      '     PhysicalModel\n'
+      '     AnimatedPhysicalModel\n'
+      '     Material\n'
+      '     _ScaffoldScope\n'
+      '     Scaffold\n'
+      '     MediaQuery\n'
+      '     Directionality\n'
+      '     [root]\n'
+      '   Typically, the ScaffoldMessenger widget is introduced by the\n'
+      '   MaterialApp at the top of your application widget tree.\n'
+    ));
   });
 }
 
@@ -1934,8 +2226,8 @@ class _GeometryListenerState extends State<_GeometryListener> {
   }
 
   int numNotifications = 0;
-  ValueListenable<ScaffoldGeometry> geometryListenable;
-  _GeometryCachePainter cache;
+  ValueListenable<ScaffoldGeometry>? geometryListenable;
+  late _GeometryCachePainter cache;
 
   @override
   void didChangeDependencies() {
@@ -1945,11 +2237,11 @@ class _GeometryListenerState extends State<_GeometryListener> {
       return;
 
     if (geometryListenable != null)
-      geometryListenable.removeListener(onGeometryChanged);
+      geometryListenable!.removeListener(onGeometryChanged);
 
     geometryListenable = newListenable;
-    geometryListenable.addListener(onGeometryChanged);
-    cache = _GeometryCachePainter(geometryListenable);
+    geometryListenable!.addListener(onGeometryChanged);
+    cache = _GeometryCachePainter(geometryListenable!);
   }
 
   void onGeometryChanged() {
@@ -1965,7 +2257,7 @@ class _GeometryCachePainter extends CustomPainter {
 
   final ValueListenable<ScaffoldGeometry> geometryListenable;
 
-  ScaffoldGeometry value;
+  late ScaffoldGeometry value;
   @override
   void paint(Canvas canvas, Size size) {
     value = geometryListenable.value;
@@ -1979,7 +2271,7 @@ class _GeometryCachePainter extends CustomPainter {
 
 class _CustomPageRoute<T> extends PageRoute<T> {
   _CustomPageRoute({
-    @required this.builder,
+    required this.builder,
     RouteSettings settings = const RouteSettings(),
     this.maintainState = true,
     bool fullscreenDialog = false,
@@ -1992,10 +2284,10 @@ class _CustomPageRoute<T> extends PageRoute<T> {
   Duration get transitionDuration => const Duration(milliseconds: 300);
 
   @override
-  Color get barrierColor => null;
+  Color? get barrierColor => null;
 
   @override
-  String get barrierLabel => null;
+  String? get barrierLabel => null;
 
   @override
   final bool maintainState;

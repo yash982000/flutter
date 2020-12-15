@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
 import 'package:args/command_runner.dart';
 import 'package:flutter_tools/src/base/file_system.dart';
 import 'package:flutter_tools/src/cache.dart';
@@ -52,13 +50,14 @@ void main() {
         globals.fs.path.join(basePath, '.idea', 'runConfigurations', 'hello_world.xml$suffix'): 'hello_world $marker',
         globals.fs.path.join(basePath, 'flutter.iml$suffix'): 'flutter $marker',
         globals.fs.path.join(basePath, 'packages', 'new', 'deep.iml$suffix'): 'deep $marker',
+        globals.fs.path.join(basePath, 'example', 'gallery', 'android.iml$suffix'): 'android $marker',
       };
     }
 
     void _populateDir(Map<String, String> manifest) {
       for (final String key in manifest.keys) {
         if (manifest[key] == 'dir') {
-          tempDir.childDirectory(key)..createSync(recursive: true);
+          tempDir.childDirectory(key).createSync(recursive: true);
         }
       }
       for (final String key in manifest.keys) {
@@ -82,10 +81,10 @@ void main() {
       List<String> unexpectedPaths = const <String>[],
     }) async {
       dir ??= tempDir;
+      Cache.flutterRoot = tempDir.absolute.path;
       final IdeConfigCommand command = IdeConfigCommand();
       final CommandRunner<void> runner = createTestCommandRunner(command);
       await runner.run(<String>[
-        '--flutter-root=${tempDir.absolute.path}',
         'ide-config',
         ...args,
       ]);

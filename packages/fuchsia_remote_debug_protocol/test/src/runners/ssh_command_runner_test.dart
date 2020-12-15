@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
 import 'dart:io' show ProcessResult;
 
 import 'package:mockito/mockito.dart';
@@ -79,7 +78,8 @@ void main() {
       const String addr = '192.168.1.1';
       runner = SshCommandRunner.withProcessManager(mockProcessManager,
           address: addr);
-      when<dynamic>(mockProcessResult.stdout).thenReturn('''this
+      when<dynamic>(mockProcessResult.stdout).thenReturn('''
+          this
           has
           four
           lines''');
@@ -98,7 +98,7 @@ void main() {
         await runner.run('oihaw');
       }
 
-      expect(failingFunction, throwsA(isInstanceOf<SshCommandError>()));
+      expect(failingFunction, throwsA(isA<SshCommandError>()));
     });
 
     test('verify correct args with config', () async {

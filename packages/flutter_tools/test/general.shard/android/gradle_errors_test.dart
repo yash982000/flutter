@@ -3,18 +3,17 @@
 // found in the LICENSE file.
 
 import 'package:file/memory.dart';
+import 'package:file_testing/file_testing.dart';
 import 'package:flutter_tools/src/android/gradle_errors.dart';
 import 'package:flutter_tools/src/android/gradle_utils.dart';
 import 'package:flutter_tools/src/base/context.dart';
 import 'package:flutter_tools/src/base/file_system.dart';
 import 'package:flutter_tools/src/base/io.dart';
-
+import 'package:flutter_tools/src/base/platform.dart';
+import 'package:flutter_tools/src/globals.dart' as globals;
 import 'package:flutter_tools/src/project.dart';
 import 'package:flutter_tools/src/reporting/reporting.dart';
-import 'package:flutter_tools/src/globals.dart' as globals;
-
 import 'package:mockito/mockito.dart';
-import 'package:platform/platform.dart';
 import 'package:process/process.dart';
 
 import '../../src/common.dart';
@@ -39,34 +38,78 @@ void main() {
   });
 
   group('network errors', () {
-    testUsingContext('throws toolExit if gradle fails while downloading', () async {
-      const String errorMessage = '''
+    testUsingContext('retries and deletes zip if gradle fails to unzip', () async {
+      globals.fs.file('foo/.gradle/fizz.zip').createSync(recursive: true);
+      const String errorMessage = r'''
+Exception in thread "main" java.util.zip.ZipException: error in opening zip file
+at java.util.zip.ZipFile.open(Native Method)
+at java.util.zip.ZipFile.(ZipFile.java:225)
+at java.util.zip.ZipFile.(ZipFile.java:155)
+at java.util.zip.ZipFile.(ZipFile.java:169)
+at org.gradle.wrapper.Install.unzip(Install.java:214)
+at org.gradle.wrapper.Install.access$600(Install.java:27)
+at org.gradle.wrapper.Install$1.call(Install.java:74)
+at org.gradle.wrapper.Install$1.call(Install.java:48)
+at org.gradle.wrapper.ExclusiveFileAccessManager.access(ExclusiveFileAccessManager.java:65)
+at org.gradle.wrapper.Install.createDist(Install.java:48)
+at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:128)
+at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)
+[!] Gradle threw an error while trying to update itself. Retrying the update...
+Exception in thread "main" java.util.zip.ZipException: error in opening zip file
+at java.util.zip.ZipFile.open(Native Method)
+at java.util.zip.ZipFile.(ZipFile.java:225)
+at java.util.zip.ZipFile.(ZipFile.java:155)
+at java.util.zip.ZipFile.(ZipFile.java:169)
+at org.gradle.wrapper.Install.unzip(Install.java:214)
+at org.gradle.wrapper.Install.access$600(Install.java:27)
+at org.gradle.wrapper.Install$1.call(Install.java:74)
+at org.gradle.wrapper.Install$1.call(Install.java:48)
+at org.gradle.wrapper.ExclusiveFileAccessManager.access(ExclusiveFileAccessManager.java:65)
+at org.gradle.wrapper.Install.createDist(Install.java:48)
+at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:128)
+at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)
+''';
+
+      expect(formatTestErrorMessage(errorMessage, networkErrorHandler), isTrue);
+      expect(await networkErrorHandler.handler(), equals(GradleBuildStatus.retry));
+      expect(globals.fs.file('foo/.gradle/fizz.zip'), isNot(exists));
+    }, overrides: <Type, Generator>{
+      FileSystem: () => MemoryFileSystem.test(),
+      ProcessManager: () => FakeProcessManager.any(),
+      Platform: () => FakePlatform(environment: <String, String>{'HOME': 'foo/'}),
+    });
+
+    testUsingContext('retries if gradle fails while downloading', () async {
+      const String errorMessage = r'''
 Exception in thread "main" java.io.FileNotFoundException: https://downloads.gradle.org/distributions/gradle-4.1.1-all.zip
 at sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1872)
 at sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1474)
 at sun.net.www.protocol.https.HttpsURLConnectionImpl.getInputStream(HttpsURLConnectionImpl.java:254)
 at org.gradle.wrapper.Download.downloadInternal(Download.java:58)
 at org.gradle.wrapper.Download.download(Download.java:44)
-at org.gradle.wrapper.Install\$1.call(Install.java:61)
-at org.gradle.wrapper.Install\$1.call(Install.java:48)
+at org.gradle.wrapper.Install$1.call(Install.java:61)
+at org.gradle.wrapper.Install$1.call(Install.java:48)
 at org.gradle.wrapper.ExclusiveFileAccessManager.access(ExclusiveFileAccessManager.java:65)
 at org.gradle.wrapper.Install.createDist(Install.java:48)
 at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:128)
 at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)''';
 
-      expect(testErrorMessage(errorMessage, networkErrorHandler), isTrue);
+      expect(formatTestErrorMessage(errorMessage, networkErrorHandler), isTrue);
       expect(await networkErrorHandler.handler(), equals(GradleBuildStatus.retry));
 
       expect(testLogger.errorText,
         contains(
-          'Gradle threw an error while trying to update itself. '
-          'Retrying the update...'
+          'Gradle threw an error while downloading artifacts from the network. '
+          'Retrying to download...'
         )
       );
+    }, overrides: <Type, Generator>{
+      FileSystem: () => MemoryFileSystem.test(),
+      ProcessManager: () => FakeProcessManager.any(),
     });
 
-    testUsingContext('throw toolExit if gradle fails downloading with proxy error', () async {
-      const String errorMessage = '''
+    testUsingContext('retries if gradle fails downloading with proxy error', () async {
+      const String errorMessage = r'''
 Exception in thread "main" java.io.IOException: Unable to tunnel through proxy. Proxy returns "HTTP/1.1 400 Bad Request"
 at sun.net.www.protocol.http.HttpURLConnection.doTunneling(HttpURLConnection.java:2124)
 at sun.net.www.protocol.https.AbstractDelegateHttpsURLConnection.connect(AbstractDelegateHttpsURLConnection.java:183)
@@ -75,25 +118,28 @@ at sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.
 at sun.net.www.protocol.https.HttpsURLConnectionImpl.getInputStream(HttpsURLConnectionImpl.java:254)
 at org.gradle.wrapper.Download.downloadInternal(Download.java:58)
 at org.gradle.wrapper.Download.download(Download.java:44)
-at org.gradle.wrapper.Install\$1.call(Install.java:61)
-at org.gradle.wrapper.Install\$1.call(Install.java:48)
+at org.gradle.wrapper.Install$1.call(Install.java:61)
+at org.gradle.wrapper.Install$1.call(Install.java:48)
 at org.gradle.wrapper.ExclusiveFileAccessManager.access(ExclusiveFileAccessManager.java:65)
 at org.gradle.wrapper.Install.createDist(Install.java:48)
 at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:128)
 at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)''';
 
-      expect(testErrorMessage(errorMessage, networkErrorHandler), isTrue);
+      expect(formatTestErrorMessage(errorMessage, networkErrorHandler), isTrue);
       expect(await networkErrorHandler.handler(), equals(GradleBuildStatus.retry));
 
       expect(testLogger.errorText,
         contains(
-          'Gradle threw an error while trying to update itself. '
-          'Retrying the update...'
+          'Gradle threw an error while downloading artifacts from the network. '
+          'Retrying to download...'
         )
       );
+    }, overrides: <Type, Generator>{
+      FileSystem: () => MemoryFileSystem.test(),
+      ProcessManager: () => FakeProcessManager.any(),
     });
 
-    testUsingContext('throws toolExit if gradle times out waiting for exclusive access to zip', () async {
+    testUsingContext('retries if gradle times out waiting for exclusive access to zip', () async {
       const String errorMessage = '''
 Exception in thread "main" java.lang.RuntimeException: Timeout of 120000 reached waiting for exclusive access to file: /User/documents/gradle-5.6.2-all.zip
 	at org.gradle.wrapper.ExclusiveFileAccessManager.access(ExclusiveFileAccessManager.java:61)
@@ -101,19 +147,22 @@ Exception in thread "main" java.lang.RuntimeException: Timeout of 120000 reached
 	at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:128)
 	at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)''';
 
-      expect(testErrorMessage(errorMessage, networkErrorHandler), isTrue);
+      expect(formatTestErrorMessage(errorMessage, networkErrorHandler), isTrue);
       expect(await networkErrorHandler.handler(), equals(GradleBuildStatus.retry));
 
       expect(testLogger.errorText,
         contains(
-          'Gradle threw an error while trying to update itself. '
-          'Retrying the update...'
+          'Gradle threw an error while downloading artifacts from the network. '
+          'Retrying to download...'
         )
       );
+    }, overrides: <Type, Generator>{
+      FileSystem: () => MemoryFileSystem.test(),
+      ProcessManager: () => FakeProcessManager.any(),
     });
 
-    testUsingContext('throws toolExit if remote host closes connection', () async {
-      const String errorMessage = '''
+    testUsingContext('retries if remote host closes connection', () async {
+      const String errorMessage = r'''
 Downloading https://services.gradle.org/distributions/gradle-5.6.2-all.zip
 Exception in thread "main" javax.net.ssl.SSLHandshakeException: Remote host closed connection during handshake
 	at sun.security.ssl.SSLSocketImpl.readRecord(SSLSocketImpl.java:994)
@@ -129,25 +178,28 @@ Exception in thread "main" javax.net.ssl.SSLHandshakeException: Remote host clos
 	at sun.net.www.protocol.https.HttpsURLConnectionImpl.getInputStream(HttpsURLConnectionImpl.java:263)
 	at org.gradle.wrapper.Download.downloadInternal(Download.java:58)
 	at org.gradle.wrapper.Download.download(Download.java:44)
-	at org.gradle.wrapper.Install\$1.call(Install.java:61)
-	at org.gradle.wrapper.Install\$1.call(Install.java:48)
+	at org.gradle.wrapper.Install$1.call(Install.java:61)
+	at org.gradle.wrapper.Install$1.call(Install.java:48)
 	at org.gradle.wrapper.ExclusiveFileAccessManager.access(ExclusiveFileAccessManager.java:65)
 	at org.gradle.wrapper.Install.createDist(Install.java:48)
 	at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:128)
 	at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)''';
 
-      expect(testErrorMessage(errorMessage, networkErrorHandler), isTrue);
+      expect(formatTestErrorMessage(errorMessage, networkErrorHandler), isTrue);
       expect(await networkErrorHandler.handler(), equals(GradleBuildStatus.retry));
 
       expect(testLogger.errorText,
         contains(
-          'Gradle threw an error while trying to update itself. '
-          'Retrying the update...'
+          'Gradle threw an error while downloading artifacts from the network. '
+          'Retrying to download...'
         )
       );
+    }, overrides: <Type, Generator>{
+      FileSystem: () => MemoryFileSystem.test(),
+      ProcessManager: () => FakeProcessManager.any(),
     });
 
-    testUsingContext('throws toolExit if file opening fails', () async {
+    testUsingContext('retries if file opening fails', () async {
       const String errorMessage = r'''
 Downloading https://services.gradle.org/distributions/gradle-3.5.0-all.zip
 Exception in thread "main" java.io.FileNotFoundException: https://downloads.gradle-dn.com/distributions/gradle-3.5.0-all.zip
@@ -163,19 +215,22 @@ Exception in thread "main" java.io.FileNotFoundException: https://downloads.grad
 	at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:128)
 	at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)''';
 
-      expect(testErrorMessage(errorMessage, networkErrorHandler), isTrue);
+      expect(formatTestErrorMessage(errorMessage, networkErrorHandler), isTrue);
       expect(await networkErrorHandler.handler(), equals(GradleBuildStatus.retry));
 
       expect(testLogger.errorText,
         contains(
-          'Gradle threw an error while trying to update itself. '
-          'Retrying the update...'
+          'Gradle threw an error while downloading artifacts from the network. '
+          'Retrying to download...'
         )
       );
+    }, overrides: <Type, Generator>{
+      FileSystem: () => MemoryFileSystem.test(),
+      ProcessManager: () => FakeProcessManager.any(),
     });
 
-    testUsingContext('throws toolExit if the connection is reset', () async {
-      const String errorMessage = '''
+    testUsingContext('retries if the connection is reset', () async {
+      const String errorMessage = r'''
 Downloading https://services.gradle.org/distributions/gradle-5.6.2-all.zip
 Exception in thread "main" java.net.SocketException: Connection reset
 	at java.net.SocketInputStream.read(SocketInputStream.java:210)
@@ -194,22 +249,53 @@ Exception in thread "main" java.net.SocketException: Connection reset
 	at sun.net.www.protocol.https.HttpsURLConnectionImpl.getInputStream(HttpsURLConnectionImpl.java:263)
 	at org.gradle.wrapper.Download.downloadInternal(Download.java:58)
 	at org.gradle.wrapper.Download.download(Download.java:44)
-	at org.gradle.wrapper.Install\$1.call(Install.java:61)
-	at org.gradle.wrapper.Install\$1.call(Install.java:48)
+	at org.gradle.wrapper.Install$1.call(Install.java:61)
+	at org.gradle.wrapper.Install$1.call(Install.java:48)
 	at org.gradle.wrapper.ExclusiveFileAccessManager.access(ExclusiveFileAccessManager.java:65)
 	at org.gradle.wrapper.Install.createDist(Install.java:48)
 	at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:128)
 	at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)''';
 
-      expect(testErrorMessage(errorMessage, networkErrorHandler), isTrue);
+      expect(formatTestErrorMessage(errorMessage, networkErrorHandler), isTrue);
       expect(await networkErrorHandler.handler(), equals(GradleBuildStatus.retry));
 
       expect(testLogger.errorText,
         contains(
-          'Gradle threw an error while trying to update itself. '
-          'Retrying the update...'
+          'Gradle threw an error while downloading artifacts from the network. '
+          'Retrying to download...'
         )
       );
+    }, overrides: <Type, Generator>{
+      FileSystem: () => MemoryFileSystem.test(),
+      ProcessManager: () => FakeProcessManager.any(),
+    });
+
+    testUsingContext('retries if Gradle could not get a resource', () async {
+      const String errorMessage = '''
+A problem occurred configuring root project 'android'.
+> Could not resolve all artifacts for configuration ':classpath'.
+   > Could not resolve net.sf.proguard:proguard-gradle:6.0.3.
+     Required by:
+         project : > com.android.tools.build:gradle:3.3.0
+      > Could not resolve net.sf.proguard:proguard-gradle:6.0.3.
+         > Could not parse POM https://jcenter.bintray.com/net/sf/proguard/proguard-gradle/6.0.3/proguard-gradle-6.0.3.pom
+            > Could not resolve net.sf.proguard:proguard-parent:6.0.3.
+               > Could not resolve net.sf.proguard:proguard-parent:6.0.3.
+                  > Could not get resource 'https://jcenter.bintray.com/net/sf/proguard/proguard-parent/6.0.3/proguard-parent-6.0.3.pom'.
+                     > Could not GET 'https://jcenter.bintray.com/net/sf/proguard/proguard-parent/6.0.3/proguard-parent-6.0.3.pom'. Received status code 504 from server: Gateway Time-out''';
+
+      expect(formatTestErrorMessage(errorMessage, networkErrorHandler), isTrue);
+      expect(await networkErrorHandler.handler(), equals(GradleBuildStatus.retry));
+
+      expect(testLogger.errorText,
+        contains(
+          'Gradle threw an error while downloading artifacts from the network. '
+          'Retrying to download...'
+        )
+      );
+    }, overrides: <Type, Generator>{
+      FileSystem: () => MemoryFileSystem.test(),
+      ProcessManager: () => FakeProcessManager.any(),
     });
   });
 
@@ -219,7 +305,7 @@ Exception in thread "main" java.net.SocketException: Connection reset
 Permission denied
 Command: /home/android/gradlew assembleRelease
 ''';
-      expect(testErrorMessage(errorMessage, permissionDeniedErrorHandler), isTrue);
+      expect(formatTestErrorMessage(errorMessage, permissionDeniedErrorHandler), isTrue);
       expect(await permissionDeniedErrorHandler.handler(), equals(GradleBuildStatus.exit));
 
       expect(
@@ -280,7 +366,7 @@ Command: /home/android/gradlew assembleRelease
 
       expect(status, equals(GradleBuildStatus.exit));
     }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
+      FileSystem: () => MemoryFileSystem.test(),
       ProcessManager: () => MockProcessManager(),
       Usage: () => mockUsage,
     });
@@ -298,7 +384,7 @@ Command: /home/android/gradlew assembleRelease
       expect(testLogger.statusText,
         contains(
           'AndroidX incompatibilities may have caused this build to fail. '
-          'Please migrate your app to AndroidX. See https://goo.gl/CP92wY.'
+          'Please migrate your app to AndroidX. See https://goo.gl/CP92wY .'
         )
       );
       verify(mockUsage.sendEvent(
@@ -312,7 +398,7 @@ Command: /home/android/gradlew assembleRelease
 
       expect(status, equals(GradleBuildStatus.exit));
     }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
+      FileSystem: () => MemoryFileSystem.test(),
       ProcessManager: () => MockProcessManager(),
       Usage: () => mockUsage,
     });
@@ -338,7 +424,7 @@ Command: /home/android/gradlew assembleRelease
 
       expect(status, equals(GradleBuildStatus.exit));
     }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
+      FileSystem: () => MemoryFileSystem.test(),
       ProcessManager: () => MockProcessManager(),
       Usage: () => mockUsage,
     });
@@ -355,8 +441,8 @@ Command: /home/android/gradlew assembleRelease
 
       expect(testLogger.statusText,
         contains(
-          'The built failed likely due to AndroidX incompatibilities in a plugin. '
-          'The tool is about to try using Jetfier to solve the incompatibility.'
+          'The build failed likely due to AndroidX incompatibilities in a plugin. '
+          'The tool is about to try using Jetifier to solve the incompatibility.'
         )
       );
       verify(mockUsage.sendEvent(
@@ -369,7 +455,7 @@ Command: /home/android/gradlew assembleRelease
       )).called(1);
       expect(status, equals(GradleBuildStatus.retryWithAarPlugins));
     }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
+      FileSystem: () => MemoryFileSystem.test(),
       ProcessManager: () => MockProcessManager(),
       Usage: () => mockUsage,
     });
@@ -381,7 +467,7 @@ Command: /home/android/gradlew assembleRelease
 Permission denied
 Command: /home/android/gradlew assembleRelease
 ''';
-      expect(testErrorMessage(errorMessage, permissionDeniedErrorHandler), isTrue);
+      expect(formatTestErrorMessage(errorMessage, permissionDeniedErrorHandler), isTrue);
     });
 
     testUsingContext('handler', () async {
@@ -516,6 +602,7 @@ assembleFooTest
       GradleUtils: () => FakeGradleUtils(),
       Platform: () => fakePlatform('android'),
       ProcessManager: () => mockProcessManager,
+      FileSystem: () => MemoryFileSystem.test(),
     });
 
     testUsingContext('handler - without flavor', () async {
@@ -563,22 +650,26 @@ assembleProfile
       GradleUtils: () => FakeGradleUtils(),
       Platform: () => fakePlatform('android'),
       ProcessManager: () => mockProcessManager,
+      FileSystem: () => MemoryFileSystem.test(),
     });
   });
 }
 
 class MockUsage extends Mock implements Usage {}
 
-bool testErrorMessage(String errorMessage, GradleHandledError error) {
+bool formatTestErrorMessage(String errorMessage, GradleHandledError error) {
   return errorMessage
     .split('\n')
     .any((String line) => error.test(line));
 }
 
 Platform fakePlatform(String name) {
-  return FakePlatform
-    .fromPlatform(const LocalPlatform())
-    ..operatingSystem = name;
+  return FakePlatform(
+    environment: <String, String>{
+      'HOME': '/',
+    },
+    operatingSystem: name,
+  );
 }
 
 class FakeGradleUtils extends GradleUtils {

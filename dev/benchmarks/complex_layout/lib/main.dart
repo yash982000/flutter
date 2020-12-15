@@ -109,8 +109,9 @@ class ComplexLayoutState extends State<ComplexLayout> {
           Expanded(
             child: ListView.builder(
               key: const Key('complex-scroll'), // this key is used by the driver test
+              controller: ScrollController(),  // So that the scroll offset can be tracked
               itemBuilder: (BuildContext context, int index) {
-                if (index % 2 == 0)
+                if (index.isEven)
                   return FancyImageItem(index, key: PageStorageKey<int>(index));
                 else
                   return FancyGalleryItem(index, key: PageStorageKey<int>(index));
@@ -363,7 +364,7 @@ class UserHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 RichText(text: TextSpan(
-                  style: Theme.of(context).textTheme.body1,
+                  style: Theme.of(context).textTheme.bodyText2,
                   children: <TextSpan>[
                     TextSpan(text: userName, style: const TextStyle(fontWeight: FontWeight.bold)),
                     const TextSpan(text: ' shared a new '),
@@ -462,8 +463,8 @@ class ItemImageBox extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  Text('Artisans of Southern India', style: Theme.of(context).textTheme.body2),
-                  Text('Silk Spinners', style: Theme.of(context).textTheme.body1),
+                  Text('Artisans of Southern India', style: Theme.of(context).textTheme.bodyText1),
+                  Text('Silk Spinners', style: Theme.of(context).textTheme.bodyText2),
                   Text('Sivaganga, Tamil Nadu', style: Theme.of(context).textTheme.caption),
                 ],
               ),
@@ -506,7 +507,7 @@ class ItemGalleryBox extends StatelessWidget {
                               child: Container(
                                 color: Theme.of(context).primaryColor,
                                 child: Center(
-                                  child: Text(tabName, style: Theme.of(context).textTheme.headline.copyWith(color: Colors.white)),
+                                  child: Text(tabName, style: Theme.of(context).textTheme.headline5.copyWith(color: Colors.white)),
                                 ),
                               ),
                             ),

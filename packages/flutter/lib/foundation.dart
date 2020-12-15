@@ -10,6 +10,7 @@
 library foundation;
 
 export 'package:meta/meta.dart' show
+  factory,
   immutable,
   mustCallSuper,
   nonVirtual,
@@ -19,6 +20,7 @@ export 'package:meta/meta.dart' show
   visibleForTesting;
 
 // Examples can assume:
+// // @dart = 2.9
 // String _name;
 // bool _first;
 // bool _lights;
@@ -51,7 +53,6 @@ export 'src/foundation/object.dart';
 export 'src/foundation/observer_list.dart';
 export 'src/foundation/platform.dart';
 export 'src/foundation/print.dart';
-export 'src/foundation/profile.dart';
 export 'src/foundation/serialization.dart';
 export 'src/foundation/stack_frame.dart';
 export 'src/foundation/synchronous_future.dart';

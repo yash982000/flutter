@@ -17,7 +17,7 @@ import '../scheduler/scheduler_tester.dart';
 void main() {
   setUp(() {
     WidgetsFlutterBinding.ensureInitialized();
-    WidgetsBinding.instance.resetEpoch();
+    WidgetsBinding.instance!.resetEpoch();
     ui.window.onBeginFrame = null;
     ui.window.onDrawFrame = null;
   });
@@ -151,25 +151,25 @@ void main() {
     controller.forward();
     tick(const Duration(milliseconds: 10));
     tick(const Duration(milliseconds: 30));
-    expect(controller.value, closeTo(0.2, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.2));
     tick(const Duration(milliseconds: 60));
-    expect(controller.value, closeTo(0.5, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.5));
     tick(const Duration(milliseconds: 90));
-    expect(controller.value, closeTo(0.8, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.8));
     tick(const Duration(milliseconds: 120));
-    expect(controller.value, closeTo(1.0, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(1.0));
     controller.stop();
 
     controller.reverse();
     tick(const Duration(milliseconds: 210));
     tick(const Duration(milliseconds: 220));
-    expect(controller.value, closeTo(0.8, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.8));
     tick(const Duration(milliseconds: 230));
-    expect(controller.value, closeTo(0.6, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.6));
     tick(const Duration(milliseconds: 240));
-    expect(controller.value, closeTo(0.4, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.4));
     tick(const Duration(milliseconds: 260));
-    expect(controller.value, closeTo(0.0, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.0));
     controller.stop();
 
     // Swap which duration is longer.
@@ -182,25 +182,25 @@ void main() {
     controller.forward();
     tick(const Duration(milliseconds: 10));
     tick(const Duration(milliseconds: 30));
-    expect(controller.value, closeTo(0.4, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.4));
     tick(const Duration(milliseconds: 60));
-    expect(controller.value, closeTo(1.0, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(1.0));
     tick(const Duration(milliseconds: 90));
-    expect(controller.value, closeTo(1.0, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(1.0));
     controller.stop();
 
     controller.reverse();
     tick(const Duration(milliseconds: 210));
     tick(const Duration(milliseconds: 220));
-    expect(controller.value, closeTo(0.9, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.9));
     tick(const Duration(milliseconds: 230));
-    expect(controller.value, closeTo(0.8, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.8));
     tick(const Duration(milliseconds: 240));
-    expect(controller.value, closeTo(0.7, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.7));
     tick(const Duration(milliseconds: 260));
-    expect(controller.value, closeTo(0.5, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.5));
     tick(const Duration(milliseconds: 310));
-    expect(controller.value, closeTo(0.0, precisionErrorTolerance));
+    expect(controller.value, moreOrLessEquals(0.0));
     controller.stop();
   });
 
@@ -251,6 +251,29 @@ void main() {
     tick(const Duration(seconds: 6));
     expect(largeRangeController.value, -30.0);
     largeRangeController.stop();
+  });
+
+  test('Custom springDescription can be applied', () {
+    final AnimationController controller = AnimationController(
+      vsync: const TestVSync(),
+    );
+    final AnimationController customSpringController = AnimationController(
+      vsync: const TestVSync(),
+    );
+
+    controller.fling();
+    // Will produce longer and smoother animation than the default.
+    customSpringController.fling(
+      springDescription: SpringDescription.withDampingRatio(
+        mass: 0.01,
+        stiffness: 10.0,
+        ratio: 2.0,
+      ),
+    );
+    tick(const Duration(milliseconds: 0));
+    tick(const Duration(milliseconds: 50));
+
+    expect(customSpringController.value < controller.value, true);
   });
 
   test('lastElapsedDuration control test', () {
@@ -348,7 +371,7 @@ void main() {
     expect(controller.repeat, throwsFlutterError);
 
     controller.dispose();
-    FlutterError result;
+    FlutterError? result;
     try {
       controller.dispose();
     } on FlutterError catch (e) {
@@ -356,7 +379,7 @@ void main() {
     }
     expect(result, isNotNull);
     expect(
-      result.toStringDeep(),
+      result!.toStringDeep(),
       equalsIgnoringHashCodes(
         'FlutterError\n'
         '   AnimationController.dispose() called more than once.\n'
@@ -480,7 +503,7 @@ void main() {
     controller.forward(from: 0.2);
     expect(controller.value, 0.2);
     controller.animateTo(1.0, duration: Duration.zero);
-    expect(SchedulerBinding.instance.transientCallbackCount, equals(0), reason: 'Expected no animation.');
+    expect(SchedulerBinding.instance!.transientCallbackCount, equals(0), reason: 'Expected no animation.');
     expect(controller.value, 1.0);
   });
 
@@ -819,7 +842,7 @@ void main() {
       debugSemanticsDisableAnimations = null;
     });
 
-    test('AnimationBehavior.normal runs "faster" whan AnimationBehavior.preserve', () {
+    test('AnimationBehavior.normal runs "faster" than AnimationBehavior.preserve', () {
       debugSemanticsDisableAnimations = true;
       final AnimationController controller = AnimationController(
         vsync: const TestVSync(),
@@ -906,6 +929,135 @@ void main() {
     tick(const Duration(seconds: 1));
     expect(statuses, <AnimationStatus>[AnimationStatus.reverse]);
   });
+
+  test('AnimateBack can runs successfully with just "reverseDuration" property set', () {
+    final List<AnimationStatus> statuses = <AnimationStatus>[];
+    final AnimationController controller = AnimationController(
+      reverseDuration: const Duration(seconds: 2),
+      vsync: const TestVSync(),
+    )..addStatusListener((AnimationStatus status) {
+      statuses.add(status);
+    });
+
+    controller.animateBack(0.8);
+
+    expect(statuses, <AnimationStatus>[AnimationStatus.reverse]);
+    statuses.clear();
+    tick(const Duration(milliseconds: 0));
+    tick(const Duration(seconds: 2));
+    expect(statuses, <AnimationStatus>[AnimationStatus.dismissed]);
+
+    controller.dispose();
+  });
+
+  group('AnimationController "duration" error test', () {
+    test('AnimationController forward() will throw an error if there is no default duration', () {
+      final AnimationController controller = AnimationController(
+        vsync: const TestVSync(),
+      );
+
+      late FlutterError error;
+      try {
+        controller.forward();
+      } on FlutterError catch (e) {
+        error = e;
+      }
+
+      expect(error, isNotNull);
+      expect(
+        error.toStringDeep(),
+        'FlutterError\n'
+          '   AnimationController.forward() called with no default duration.\n'
+          '   The "duration" property should be set, either in the constructor\n'
+          '   or later, before calling the forward() function.\n'
+      );
+
+      controller.dispose();
+    });
+
+    test('AnimationController animateTo() will throw an error if there is no explicit duration '
+      'and default duration', () {
+      final AnimationController controller = AnimationController(
+        vsync: const TestVSync(),
+      );
+
+      late FlutterError error;
+      try {
+        controller.animateTo(0.8);
+      } on FlutterError catch (e) {
+        error = e;
+      }
+
+      expect(error, isNotNull);
+      expect(
+        error.toStringDeep(),
+        'FlutterError\n'
+          '   AnimationController.animateTo() called with no explicit duration\n'
+          '   and no default duration.\n'
+          '   Either the "duration" argument to the animateTo() method should\n'
+          '   be provided, or the "duration" property should be set, either in\n'
+          '   the constructor or later, before calling the animateTo()\n'
+          '   function.\n'
+      );
+
+      controller.dispose();
+    });
+
+    test('AnimationController reverse() will throw an error if there is no default duration or reverseDuration', () {
+      final AnimationController controller = AnimationController(
+        vsync: const TestVSync(),
+      );
+
+      late FlutterError error;
+      try {
+        controller.reverse();
+      } on FlutterError catch (e) {
+        error = e;
+      }
+
+      expect(error, isNotNull);
+      expect(
+        error.toStringDeep(),
+        'FlutterError\n'
+          '   AnimationController.reverse() called with no default duration or\n'
+          '   reverseDuration.\n'
+          '   The "duration" or "reverseDuration" property should be set,\n'
+          '   either in the constructor or later, before calling the reverse()\n'
+          '   function.\n'
+      );
+
+      controller.dispose();
+    });
+
+    test('AnimationController animateBack() will throw an error if there is no explicit duration and '
+      'no default duration or reverseDuration', () {
+      final AnimationController controller = AnimationController(
+        vsync: const TestVSync(),
+      );
+
+      late FlutterError error;
+      try {
+        controller.animateBack(0.8);
+      } on FlutterError catch (e) {
+        error = e;
+      }
+
+      expect(error, isNotNull);
+      expect(
+        error.toStringDeep(),
+        'FlutterError\n'
+          '   AnimationController.animateBack() called with no explicit\n'
+          '   duration and no default duration or reverseDuration.\n'
+          '   Either the "duration" argument to the animateBack() method should\n'
+          '   be provided, or the "duration" or "reverseDuration" property\n'
+          '   should be set, either in the constructor or later, before calling\n'
+          '   the animateBack() function.\n'
+      );
+
+      controller.dispose();
+    });
+  });
+
 }
 
 class TestSimulation extends Simulation {

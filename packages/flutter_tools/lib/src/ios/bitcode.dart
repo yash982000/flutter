@@ -9,26 +9,23 @@ import '../base/process.dart';
 import '../base/version.dart';
 import '../build_info.dart';
 import '../globals.dart' as globals;
-import '../ios/plist_parser.dart';
 import '../macos/xcode.dart';
 
 const bool kBitcodeEnabledDefault = false;
 
-Future<void> validateBitcode(BuildMode buildMode, TargetPlatform targetPlatform) async {
+Future<void> validateBitcode(BuildMode buildMode, TargetPlatform targetPlatform, EnvironmentType environmentType) async {
   final Artifacts localArtifacts = globals.artifacts;
   final String flutterFrameworkPath = localArtifacts.getArtifactPath(
     Artifact.flutterFramework,
     mode: buildMode,
     platform: targetPlatform,
+    environmentType: environmentType,
   );
-  if (!globals.fs.isDirectorySync(flutterFrameworkPath)) {
-    throwToolExit('Flutter.framework not found at $flutterFrameworkPath');
-  }
   final Xcode xcode = context.get<Xcode>();
 
   final RunResult clangResult = await xcode.clang(<String>['--version']);
   final String clangVersion = clangResult.stdout.split('\n').first;
-  final String engineClangVersion = PlistParser.instance.getValueFromFile(
+  final String engineClangVersion = globals.plistParser.getValueFromFile(
     globals.fs.path.join(flutterFrameworkPath, 'Info.plist'),
     'ClangVersion',
   );
@@ -38,7 +35,7 @@ Future<void> validateBitcode(BuildMode buildMode, TargetPlatform targetPlatform)
     throwToolExit(
       'The Flutter.framework at $flutterFrameworkPath was built '
       'with "${engineClangVersion ?? 'unknown'}", but the current version '
-      'of clang is "$clangVersion". This will result in failures when trying to'
+      'of clang is "$clangVersion". This will result in failures when trying to '
       'archive an IPA. To resolve this issue, update your version of Xcode to '
       'at least $engineClangSemVer.',
     );

@@ -2,293 +2,530 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
-import 'package:platform/platform.dart';
-
+import 'package:flutter_tools/src/base/error_handling_io.dart';
+import 'package:flutter_tools/src/base/user_messages.dart';
+import 'package:flutter_tools/src/globals.dart' as globals;
+import 'package:flutter_tools/src/artifacts.dart';
 import 'package:flutter_tools/src/base/common.dart';
 import 'package:flutter_tools/src/base/file_system.dart';
+import 'package:flutter_tools/src/base/io.dart';
+import 'package:flutter_tools/src/base/logger.dart';
+import 'package:flutter_tools/src/base/platform.dart';
+import 'package:flutter_tools/src/base/terminal.dart';
 import 'package:flutter_tools/src/cache.dart';
 import 'package:flutter_tools/src/commands/analyze.dart';
 import 'package:flutter_tools/src/runner/flutter_command.dart';
-import 'package:flutter_tools/src/runner/flutter_command_runner.dart';
-import 'package:flutter_tools/src/globals.dart' as globals;
+import 'package:process/process.dart';
 
 import '../../src/common.dart';
 import '../../src/context.dart';
 
-final Generator _kNoColorTerminalPlatform = () => FakePlatform.fromPlatform(const LocalPlatform())..stdoutSupportsAnsi = false;
-final Map<Type, Generator> noColorTerminalOverride = <Type, Generator>{
-  Platform: _kNoColorTerminalPlatform,
-};
+final Platform _kNoColorTerminalPlatform = FakePlatform(stdoutSupportsAnsi: false);
 
 void main() {
-  final String analyzerSeparator = globals.platform.isWindows ? '-' : '•';
+  String analyzerSeparator;
+  FileSystem fileSystem;
+  Platform platform;
+  BufferLogger logger;
+  AnsiTerminal terminal;
+  ProcessManager processManager;
+  Directory tempDir;
+  String projectPath;
+  File libMain;
+  Artifacts artifacts;
 
-  group('analyze once', () {
-    setUpAll(() {
-      Cache.disableLocking();
-      Cache.flutterRoot = FlutterCommandRunner.defaultFlutterRoot;
-    });
-
-    void _createDotPackages(String projectPath) {
-      final StringBuffer flutterRootUri = StringBuffer('file://');
-      final String canonicalizedFlutterRootPath = globals.fs.path.canonicalize(Cache.flutterRoot);
-      if (globals.platform.isWindows) {
-        flutterRootUri
-            ..write('/')
-            ..write(canonicalizedFlutterRootPath.replaceAll('\\', '/'));
-      } else {
-        flutterRootUri.write(canonicalizedFlutterRootPath);
+  Future<void> runCommand({
+    FlutterCommand command,
+    List<String> arguments,
+    List<String> statusTextContains,
+    List<String> errorTextContains,
+    bool toolExit = false,
+    String exitMessageContains,
+    int exitCode = 0,
+  }) async {
+    try {
+      await createTestCommandRunner(command).run(arguments);
+      expect(toolExit, isFalse, reason: 'Expected ToolExit exception');
+    } on ToolExit catch (e) {
+      if (!toolExit) {
+        testLogger.clear();
+        rethrow;
       }
-      final String dotPackagesSrc = '''# Generated
-flutter:$flutterRootUri/packages/flutter/lib/
-sky_engine:$flutterRootUri/bin/cache/pkg/sky_engine/lib/
-flutter_project:lib/
-''';
-      globals.fs.file(globals.fs.path.join(projectPath, '.packages'))
-          ..createSync(recursive: true)
-          ..writeAsStringSync(dotPackagesSrc);
+      if (exitMessageContains != null) {
+        expect(e.message, contains(exitMessageContains));
+        // May not analyzer exception the `exitCode` is `null`.
+        expect(e.exitCode ?? 0, exitCode);
+      }
     }
+    assertContains(logger.statusText, statusTextContains);
+    assertContains(logger.errorText, errorTextContains);
 
-    group('default libMain', () {
-      Directory tempDir;
-      String projectPath;
-      File libMain;
+    logger.clear();
+  }
 
-      setUpAll(() async {
-        tempDir = globals.fs.systemTempDirectory.createTempSync('flutter_analyze_once_test_1.').absolute;
-        projectPath = globals.fs.path.join(tempDir.path, 'flutter_project');
-        globals.fs.file(globals.fs.path.join(projectPath, 'pubspec.yaml'))
-            ..createSync(recursive: true)
-            ..writeAsStringSync(pubspecYamlSrc);
-        _createDotPackages(projectPath);
-      });
+  void _createDotPackages(String projectPath, [bool nullSafe = false]) {
+    final StringBuffer flutterRootUri = StringBuffer('file://');
+    final String canonicalizedFlutterRootPath = fileSystem.path.canonicalize(Cache.flutterRoot);
+    if (platform.isWindows) {
+      flutterRootUri
+          ..write('/')
+          ..write(canonicalizedFlutterRootPath.replaceAll(r'\', '/'));
+    } else {
+      flutterRootUri.write(canonicalizedFlutterRootPath);
+    }
+    final String dotPackagesSrc = '''
+{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "flutter",
+      "rootUri": "$flutterRootUri/packages/flutter",
+      "packageUri": "lib/",
+      "languageVersion": "2.10"
+    },
+    {
+      "name": "sky_engine",
+      "rootUri": "$flutterRootUri/bin/cache/pkg/sky_engine",
+      "packageUri": "lib/",
+      "languageVersion": "2.10"
+    },
+    {
+      "name": "flutter_project",
+      "rootUri": "../",
+      "packageUri": "lib/",
+      "languageVersion": "${nullSafe ? "2.10" : "2.7"}"
+    }
+  ]
+}
+''';
 
-      setUp(() {
-        libMain = globals.fs.file(globals.fs.path.join(projectPath, 'lib', 'main.dart'))
-            ..createSync(recursive: true)
-            ..writeAsStringSync(mainDartSrc);
-      });
+    fileSystem.file(fileSystem.path.join(projectPath, '.dart_tool', 'package_config.json'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(dotPackagesSrc);
+  }
 
-      tearDownAll(() {
-        tryToDelete(tempDir);
-      });
+  setUpAll(() {
+    Cache.disableLocking();
+    processManager = const LocalProcessManager();
+    platform = const LocalPlatform();
+    terminal = AnsiTerminal(platform: platform, stdio: Stdio());
+    fileSystem = LocalFileSystem.instance;
+    logger = BufferLogger.test();
+    analyzerSeparator = platform.isWindows ? '-' : '•';
+    artifacts = CachedArtifacts(
+      cache: globals.cache,
+      fileSystem: fileSystem,
+      platform: platform,
+    );
+    Cache.flutterRoot = Cache.defaultFlutterRoot(
+      fileSystem: fileSystem,
+      platform: platform,
+      userMessages: UserMessages(),
+    );
+  });
+
+  setUp(() {
+    tempDir = fileSystem.systemTempDirectory.createTempSync(
+      'flutter_analyze_once_test_1.',
+    ).absolute;
+    projectPath = fileSystem.path.join(tempDir.path, 'flutter_project');
+    fileSystem.file(fileSystem.path.join(projectPath, 'pubspec.yaml'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(pubspecYamlSrc);
+    _createDotPackages(projectPath);
+    libMain = fileSystem.file(fileSystem.path.join(projectPath, 'lib', 'main.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(mainDartSrc);
+  });
+
+  tearDown(() {
+    tryToDelete(tempDir);
+  });
+
+  // Analyze in the current directory - no arguments
+  testUsingContext('working directory', () async {
+    await runCommand(
+      command: AnalyzeCommand(
+        workingDirectory: fileSystem.directory(projectPath),
+        fileSystem: fileSystem,
+        logger: logger,
+        platform: platform,
+        processManager: processManager,
+        terminal: terminal,
+        artifacts: artifacts,
+      ),
+      arguments: <String>['analyze', '--no-pub'],
+      statusTextContains: <String>['No issues found!'],
+    );
+  });
+
+  // Analyze a specific file outside the current directory
+  testUsingContext('passing one file throws', () async {
+    await runCommand(
+      command: AnalyzeCommand(
+        platform: platform,
+        fileSystem: fileSystem,
+        logger: logger,
+        processManager: processManager,
+        terminal: terminal,
+        artifacts: artifacts,
+      ),
+      arguments: <String>['analyze', '--no-pub', libMain.path],
+      toolExit: true,
+      exitMessageContains: 'is not a directory',
+    );
+  });
+
+  // Analyze in the current directory - no arguments
+  testUsingContext('working directory with errors', () async {
+    // Break the code to produce the "Avoid empty else" hint
+    // that is upgraded to a warning in package:flutter/analysis_options_user.yaml
+    // to assert that we are using the default Flutter analysis options.
+    // Also insert a statement that should not trigger a lint here
+    // but will trigger a lint later on when an analysis_options.yaml is added.
+    String source = await libMain.readAsString();
+    source = source.replaceFirst(
+      'return MaterialApp(',
+      'if (debugPrintRebuildDirtyWidgets) {} else ; return MaterialApp(',
+    );
+    source = source.replaceFirst(
+      'onPressed: _incrementCounter,',
+      '// onPressed: _incrementCounter,',
+    );
+    source = source.replaceFirst(
+        '_counter++;',
+        '_counter++; throw "an error message";',
+      );
+    libMain.writeAsStringSync(source);
+
+    // Analyze in the current directory - no arguments
+    await runCommand(
+      command: AnalyzeCommand(
+        workingDirectory: fileSystem.directory(projectPath),
+        platform: platform,
+        fileSystem: fileSystem,
+        logger: logger,
+        processManager: processManager,
+        terminal: terminal,
+        artifacts: artifacts,
+      ),
+      arguments: <String>['analyze', '--no-pub'],
+      statusTextContains: <String>[
+        'Analyzing',
+        'info $analyzerSeparator Avoid empty else statements',
+        'info $analyzerSeparator Avoid empty statements',
+        'info $analyzerSeparator The declaration \'_incrementCounter\' isn\'t',
+        'warning $analyzerSeparator The parameter \'onPressed\' is required',
+      ],
+      exitMessageContains: '4 issues found.',
+      toolExit: true,
+      exitCode: 1,
+    );
+  });
+
+  // Analyze in the current directory - no arguments
+  testUsingContext('working directory with local options', () async {
+    // Insert an analysis_options.yaml file in the project
+    // which will trigger a lint for broken code that was inserted earlier
+    final File optionsFile = fileSystem.file(fileSystem.path.join(projectPath, 'analysis_options.yaml'));
+    try {
+      optionsFile.writeAsStringSync('''
+  include: package:flutter/analysis_options_user.yaml
+  linter:
+    rules:
+      - only_throw_errors
+  ''');
+      String source = libMain.readAsStringSync();
+      source = source.replaceFirst(
+        'onPressed: _incrementCounter,',
+        '// onPressed: _incrementCounter,',
+      );
+      source = source.replaceFirst(
+        '_counter++;',
+        '_counter++; throw "an error message";',
+      );
+      libMain.writeAsStringSync(source);
 
       // Analyze in the current directory - no arguments
-      testUsingContext('working directory', () async {
-        await runCommand(
-          command: AnalyzeCommand(workingDirectory: globals.fs.directory(projectPath)),
-          arguments: <String>['analyze', '--no-pub'],
-          statusTextContains: <String>['No issues found!'],
-        );
-      });
+      await runCommand(
+        command: AnalyzeCommand(
+          workingDirectory: fileSystem.directory(projectPath),
+          platform: platform,
+          fileSystem: fileSystem,
+          logger: logger,
+          processManager: processManager,
+          terminal: terminal,
+          artifacts: artifacts,
+        ),
+        arguments: <String>['analyze', '--no-pub'],
+        statusTextContains: <String>[
+          'Analyzing',
+          'info $analyzerSeparator The declaration \'_incrementCounter\' isn\'t',
+          'info $analyzerSeparator Only throw instances of classes extending either Exception or Error',
+          'warning $analyzerSeparator The parameter \'onPressed\' is required',
+        ],
+        exitMessageContains: '3 issues found.',
+        toolExit: true,
+        exitCode: 1,
+      );
+    } finally {
+      ErrorHandlingFileSystem.deleteIfExists(optionsFile);
+    }
+  });
 
-      // Analyze a specific file outside the current directory
-      testUsingContext('passing one file throws', () async {
-        await runCommand(
-          command: AnalyzeCommand(),
-          arguments: <String>['analyze', '--no-pub', libMain.path],
-          toolExit: true,
-          exitMessageContains: 'is not a directory',
-        );
-      });
+  testUsingContext('analyze once no duplicate issues', () async {
+    final Directory tempDir = fileSystem.systemTempDirectory.createTempSync('flutter_analyze_once_test_2.').absolute;
+    _createDotPackages(tempDir.path);
 
-      // Analyze in the current directory - no arguments
-      testUsingContext('working directory with errors', () async {
-        // Break the code to produce the "Avoid empty else" hint
-        // that is upgraded to a warning in package:flutter/analysis_options_user.yaml
-        // to assert that we are using the default Flutter analysis options.
-        // Also insert a statement that should not trigger a lint here
-        // but will trigger a lint later on when an analysis_options.yaml is added.
-        String source = await libMain.readAsString();
-        source = source.replaceFirst(
-          'return MaterialApp(',
-          'if (debugPrintRebuildDirtyWidgets) {} else ; return MaterialApp(',
-        );
-        source = source.replaceFirst(
-          'onPressed: _incrementCounter,',
-          '// onPressed: _incrementCounter,',
-        );
-        source = source.replaceFirst(
-            '_counter++;',
-            '_counter++; throw "an error message";',
-          );
-        libMain.writeAsStringSync(source);
-
-        // Analyze in the current directory - no arguments
-        await runCommand(
-          command: AnalyzeCommand(workingDirectory: globals.fs.directory(projectPath)),
-          arguments: <String>['analyze', '--no-pub'],
-          statusTextContains: <String>[
-            'Analyzing',
-            'info $analyzerSeparator Avoid empty else statements',
-            'info $analyzerSeparator Avoid empty statements',
-            'info $analyzerSeparator The declaration \'_incrementCounter\' isn\'t',
-          ],
-          exitMessageContains: '3 issues found.',
-          toolExit: true,
-        );
-      });
-
-      // Analyze in the current directory - no arguments
-      testUsingContext('working directory with local options', () async {
-        // Insert an analysis_options.yaml file in the project
-        // which will trigger a lint for broken code that was inserted earlier
-        final File optionsFile = globals.fs.file(globals.fs.path.join(projectPath, 'analysis_options.yaml'));
-        try {
-          optionsFile.writeAsStringSync('''
-      include: package:flutter/analysis_options_user.yaml
-      linter:
-        rules:
-          - only_throw_errors
-      ''');
-          String source = libMain.readAsStringSync();
-          source = source.replaceFirst(
-            'onPressed: _incrementCounter,',
-            '// onPressed: _incrementCounter,',
-          );
-          source = source.replaceFirst(
-            '_counter++;',
-            '_counter++; throw "an error message";',
-          );
-          libMain.writeAsStringSync(source);
-
-          // Analyze in the current directory - no arguments
-          await runCommand(
-            command: AnalyzeCommand(workingDirectory: globals.fs.directory(projectPath)),
-            arguments: <String>['analyze', '--no-pub'],
-            statusTextContains: <String>[
-              'Analyzing',
-              'info $analyzerSeparator The declaration \'_incrementCounter\' isn\'t',
-              'info $analyzerSeparator Only throw instances of classes extending either Exception or Error',
-            ],
-            exitMessageContains: '2 issues found.',
-            toolExit: true,
-          );
-        } finally {
-          if (optionsFile.existsSync()) {
-            optionsFile.deleteSync();
-          }
-        }
-      });
-    });
-
-    testUsingContext('no duplicate issues', () async {
-      final Directory tempDir = globals.fs.systemTempDirectory.createTempSync('flutter_analyze_once_test_2.').absolute;
-      _createDotPackages(tempDir.path);
-
-      try {
-        final File foo = globals.fs.file(globals.fs.path.join(tempDir.path, 'foo.dart'));
-        foo.writeAsStringSync('''
+    try {
+      final File foo = fileSystem.file(fileSystem.path.join(tempDir.path, 'foo.dart'));
+      foo.writeAsStringSync('''
 import 'bar.dart';
 
 void foo() => bar();
 ''');
 
-        final File bar = globals.fs.file(globals.fs.path.join(tempDir.path, 'bar.dart'));
-        bar.writeAsStringSync('''
+      final File bar = fileSystem.file(fileSystem.path.join(tempDir.path, 'bar.dart'));
+      bar.writeAsStringSync('''
 import 'dart:async'; // unused
 
 void bar() {
 }
 ''');
 
-        // Analyze in the current directory - no arguments
-        await runCommand(
-          command: AnalyzeCommand(workingDirectory: tempDir),
-          arguments: <String>['analyze', '--no-pub'],
-          statusTextContains: <String>[
-            'Analyzing',
-          ],
-          exitMessageContains: '1 issue found.',
-          toolExit: true,
-        );
-      } finally {
-        tryToDelete(tempDir);
-      }
-    });
+      // Analyze in the current directory - no arguments
+      await runCommand(
+        command: AnalyzeCommand(
+          workingDirectory: tempDir,
+          platform: platform,
+          fileSystem: fileSystem,
+          logger: logger,
+          processManager: processManager,
+          terminal: terminal,
+          artifacts: artifacts,
+        ),
+        arguments: <String>['analyze', '--no-pub'],
+        statusTextContains: <String>[
+          'Analyzing',
+        ],
+        exitMessageContains: '1 issue found.',
+        toolExit: true,
+        exitCode: 1
+      );
+    } finally {
+      tryToDelete(tempDir);
+    }
+  });
 
-    testUsingContext('returns no issues when source is error-free', () async {
-      const String contents = '''
+  testUsingContext('analyze once returns no issues when source is error-free', () async {
+    const String contents = '''
 StringBuffer bar = StringBuffer('baz');
 ''';
-      final Directory tempDir = globals.fs.systemTempDirectory.createTempSync('flutter_analyze_once_test_3.');
-      _createDotPackages(tempDir.path);
+    final Directory tempDir = fileSystem.systemTempDirectory.createTempSync('flutter_analyze_once_test_3.');
+    _createDotPackages(tempDir.path);
 
-      tempDir.childFile('main.dart').writeAsStringSync(contents);
-      try {
-        await runCommand(
-          command: AnalyzeCommand(workingDirectory: globals.fs.directory(tempDir)),
-          arguments: <String>['analyze', '--no-pub'],
-          statusTextContains: <String>['No issues found!'],
-        );
-      } finally {
-        tryToDelete(tempDir);
-      }
-    }, overrides: <Type, Generator>{
-      ...noColorTerminalOverride
-    });
+    tempDir.childFile('main.dart').writeAsStringSync(contents);
+    try {
+      await runCommand(
+        command: AnalyzeCommand(
+          workingDirectory: fileSystem.directory(tempDir),
+          platform: _kNoColorTerminalPlatform,
+          fileSystem: fileSystem,
+          logger: logger,
+          processManager: processManager,
+          terminal: terminal,
+          artifacts: artifacts,
+        ),
+        arguments: <String>['analyze', '--no-pub'],
+        statusTextContains: <String>['No issues found!'],
+      );
+    } finally {
+      tryToDelete(tempDir);
+    }
+  });
 
-    testUsingContext('returns no issues for todo comments', () async {
-      const String contents = '''
+  testUsingContext('analyze once returns no issues for todo comments', () async {
+    const String contents = '''
 // TODO(foobar):
 StringBuffer bar = StringBuffer('baz');
 ''';
-      final Directory tempDir = globals.fs.systemTempDirectory.createTempSync('flutter_analyze_once_test_4.');
-      _createDotPackages(tempDir.path);
+    final Directory tempDir = fileSystem.systemTempDirectory.createTempSync('flutter_analyze_once_test_4.');
+    _createDotPackages(tempDir.path);
 
-      tempDir.childFile('main.dart').writeAsStringSync(contents);
-      try {
-        await runCommand(
-          command: AnalyzeCommand(workingDirectory: globals.fs.directory(tempDir)),
-          arguments: <String>['analyze', '--no-pub'],
-          statusTextContains: <String>['No issues found!'],
-        );
-      } finally {
-        tryToDelete(tempDir);
-      }
-    }, overrides: <Type, Generator>{
-      ...noColorTerminalOverride
-    });
+    tempDir.childFile('main.dart').writeAsStringSync(contents);
+    try {
+      await runCommand(
+        command: AnalyzeCommand(
+          workingDirectory: fileSystem.directory(tempDir),
+          platform: _kNoColorTerminalPlatform,
+          terminal: terminal,
+          processManager: processManager,
+          logger: logger,
+          fileSystem: fileSystem,
+          artifacts: artifacts,
+        ),
+        arguments: <String>['analyze', '--no-pub'],
+        statusTextContains: <String>['No issues found!'],
+      );
+    } finally {
+      tryToDelete(tempDir);
+    }
+  });
+
+  testUsingContext('analyze once with default options has info issue finally exit code 1.', () async {
+    final Directory tempDir = fileSystem.systemTempDirectory.createTempSync(
+        'flutter_analyze_once_default_options_info_issue_exit_code_1.');
+    _createDotPackages(tempDir.path);
+
+    const String infoSourceCode = '''
+int analyze() {}
+''';
+
+    tempDir.childFile('main.dart').writeAsStringSync(infoSourceCode);
+    try {
+      await runCommand(
+        command: AnalyzeCommand(
+          workingDirectory: fileSystem.directory(tempDir),
+          platform: _kNoColorTerminalPlatform,
+          terminal: terminal,
+          processManager: processManager,
+          logger: logger,
+          fileSystem: fileSystem,
+          artifacts: artifacts,
+        ),
+        arguments: <String>['analyze', '--no-pub'],
+        statusTextContains: <String>[
+          'info',
+          'missing_return',
+        ],
+        exitMessageContains: '1 issue found.',
+        toolExit: true,
+        exitCode: 1,
+      );
+    } finally {
+      tryToDelete(tempDir);
+    }
+  });
+
+  testUsingContext('analyze once with no-fatal-infos has info issue finally exit code 0.', () async {
+    final Directory tempDir = fileSystem.systemTempDirectory.createTempSync(
+        'flutter_analyze_once_no_fatal_infos_info_issue_exit_code_0.');
+    _createDotPackages(tempDir.path);
+
+    const String infoSourceCode = '''
+int analyze() {}
+''';
+
+    tempDir.childFile('main.dart').writeAsStringSync(infoSourceCode);
+    try {
+      await runCommand(
+        command: AnalyzeCommand(
+          workingDirectory: fileSystem.directory(tempDir),
+          platform: _kNoColorTerminalPlatform,
+          terminal: terminal,
+          processManager: processManager,
+          logger: logger,
+          fileSystem: fileSystem,
+          artifacts: artifacts,
+        ),
+        arguments: <String>['analyze', '--no-pub', '--no-fatal-infos'],
+        statusTextContains: <String>[
+          'info',
+          'missing_return',
+        ],
+        exitMessageContains: '1 issue found.',
+        toolExit: true,
+        exitCode: 0,
+      );
+    } finally {
+      tryToDelete(tempDir);
+    }
+  });
+
+  testUsingContext('analyze once only fatal-warnings has info issue finally exit code 0.', () async {
+    final Directory tempDir = fileSystem.systemTempDirectory.createTempSync(
+        'flutter_analyze_once_only_fatal_warnings_info_issue_exit_code_0.');
+    _createDotPackages(tempDir.path);
+
+    const String infoSourceCode = '''
+int analyze() {}
+''';
+
+    tempDir.childFile('main.dart').writeAsStringSync(infoSourceCode);
+    try {
+      await runCommand(
+        command: AnalyzeCommand(
+          workingDirectory: fileSystem.directory(tempDir),
+          platform: _kNoColorTerminalPlatform,
+          terminal: terminal,
+          processManager: processManager,
+          logger: logger,
+          fileSystem: fileSystem,
+          artifacts: artifacts,
+        ),
+        arguments: <String>['analyze', '--no-pub', '--fatal-warnings', '--no-fatal-infos'],
+        statusTextContains: <String>[
+          'info',
+          'missing_return',
+        ],
+        exitMessageContains: '1 issue found.',
+        toolExit: true,
+        exitCode: 0,
+      );
+    } finally {
+      tryToDelete(tempDir);
+    }
+  });
+
+  testUsingContext('analyze once only fatal-infos has warning issue finally exit code 1.', () async {
+    final Directory tempDir = fileSystem.systemTempDirectory.createTempSync(
+        'flutter_analyze_once_only_fatal_infos_warning_issue_exit_code_1.');
+    _createDotPackages(tempDir.path);
+
+    const String warningSourceCode = '''
+int analyze() {}
+''';
+
+    final File optionsFile = fileSystem.file(fileSystem.path.join(tempDir.path, 'analysis_options.yaml'));
+    optionsFile.writeAsStringSync('''
+analyzer:
+  errors:
+    missing_return: warning
+  ''');
+
+    tempDir.childFile('main.dart').writeAsStringSync(warningSourceCode);
+    try {
+      await runCommand(
+        command: AnalyzeCommand(
+          workingDirectory: fileSystem.directory(tempDir),
+          platform: _kNoColorTerminalPlatform,
+          terminal: terminal,
+          processManager: processManager,
+          logger: logger,
+          fileSystem: fileSystem,
+          artifacts: artifacts,
+        ),
+        arguments: <String>['analyze','--no-pub', '--fatal-infos', '--no-fatal-warnings'],
+        statusTextContains: <String>[
+          'warning',
+          'missing_return',
+        ],
+        exitMessageContains: '1 issue found.',
+        toolExit: true,
+        exitCode: 1,
+      );
+    } finally {
+      tryToDelete(tempDir);
+    }
   });
 }
 
 void assertContains(String text, List<String> patterns) {
-  if (patterns == null) {
-    expect(text, isEmpty);
-  } else {
+  if (patterns != null) {
     for (final String pattern in patterns) {
       expect(text, contains(pattern));
     }
   }
-}
-
-Future<void> runCommand({
-  FlutterCommand command,
-  List<String> arguments,
-  List<String> statusTextContains,
-  List<String> errorTextContains,
-  bool toolExit = false,
-  String exitMessageContains,
-}) async {
-  try {
-    arguments.insert(0, '--flutter-root=${Cache.flutterRoot}');
-    await createTestCommandRunner(command).run(arguments);
-    expect(toolExit, isFalse, reason: 'Expected ToolExit exception');
-  } on ToolExit catch (e) {
-    if (!toolExit) {
-      testLogger.clear();
-      rethrow;
-    }
-    if (exitMessageContains != null) {
-      expect(e.message, contains(exitMessageContains));
-    }
-  }
-  assertContains(testLogger.statusText, statusTextContains);
-  assertContains(testLogger.errorText, errorTextContains);
-
-  testLogger.clear();
 }
 
 const String mainDartSrc = r'''
@@ -342,7 +579,7 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             Text(
               '$_counter',
-              style: Theme.of(context).textTheme.display1,
+              style: Theme.of(context).textTheme.headline4,
             ),
           ],
         ),
@@ -357,7 +594,8 @@ class _MyHomePageState extends State<MyHomePage> {
 }
 ''';
 
-const String pubspecYamlSrc = r'''name: flutter_project
+const String pubspecYamlSrc = r'''
+name: flutter_project
 environment:
   sdk: ">=2.1.0 <3.0.0"
 

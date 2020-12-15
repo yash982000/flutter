@@ -10,7 +10,7 @@ import '../rendering/mock_canvas.dart';
 Widget _buildSingleChildScrollViewWithScrollbar({
   TextDirection textDirection = TextDirection.ltr,
   EdgeInsets padding = EdgeInsets.zero,
-  Widget child,
+  Widget? child,
 }) {
   return Directionality(
     textDirection: textDirection,
@@ -30,7 +30,7 @@ void main() {
     ));
     expect(find.byType(Scrollbar), isNot(paints..rect()));
     await tester.fling(find.byType(SingleChildScrollView), const Offset(0.0, -10.0), 10.0);
-    expect(find.byType(Scrollbar), paints..rect(rect: const Rect.fromLTRB(800.0 - 6.0, 1.5, 800.0, 91.5)));
+    expect(find.byType(Scrollbar), paints..rect(rect: const Rect.fromLTRB(800.0 - 12.0, 0.0, 800.0, 600.0)));
   });
 
   testWidgets('Viewport basic test (RTL)', (WidgetTester tester) async {
@@ -40,10 +40,10 @@ void main() {
     ));
     expect(find.byType(Scrollbar), isNot(paints..rect()));
     await tester.fling(find.byType(SingleChildScrollView), const Offset(0.0, -10.0), 10.0);
-    expect(find.byType(Scrollbar), paints..rect(rect: const Rect.fromLTRB(0.0, 1.5, 6.0, 91.5)));
+    expect(find.byType(Scrollbar), paints..rect(rect: const Rect.fromLTRB(0.0, 0.0, 12.0, 600.0)));
   });
 
-  testWidgets('workds with MaterialApp and Scaffold', (WidgetTester tester) async {
+  testWidgets('works with MaterialApp and Scaffold', (WidgetTester tester) async {
     await tester.pumpWidget(MaterialApp(
       home: MediaQuery(
         data: const MediaQueryData(
@@ -69,11 +69,11 @@ void main() {
 
     expect(find.byType(Scrollbar), paints..rect(
       rect: const Rect.fromLTWH(
-        800.0 - 6, // screen width - thickness
+        800.0 - 12, // screen width - default thickness and margin
         0,         // the paint area starts from the bottom of the app bar
-        6,         // thickness
+        12,         // thickness
         // 56 being the height of the app bar
-        (600.0 - 56 - 34 - 20) / 4000 * (600 - 56 - 34 - 20),
+        600.0 - 56 - 34 - 20,
       ),
     ));
   });

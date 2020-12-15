@@ -111,7 +111,7 @@ void main() {
       expect(buttonBarRect.size.width, equals(800.0));
       expect(buttonBarRect.size.height, equals(100.0));
 
-      // The children of [ButtonBar] are aligned by [MainAxisAligment.end] by
+      // The children of [ButtonBar] are aligned by [MainAxisAlignment.end] by
       // default.
       Rect childRect;
       childRect = tester.getRect(find.byKey(child0Key));
@@ -218,7 +218,7 @@ void main() {
       expect(buttonBarRect.size.width, equals(800.0));
       expect(buttonBarRect.size.height, equals(100.0));
 
-      // The children of [ButtonBar] are aligned by [MainAxisAligment.end] by
+      // The children of [ButtonBar] are aligned by [MainAxisAlignment.end] by
       // default.
       Rect childRect;
       childRect = tester.getRect(find.byKey(child0Key));
@@ -238,10 +238,10 @@ void main() {
     });
   });
 
-  group('button properies override ButtonTheme', () {
+  group('button properties override ButtonTheme', () {
 
     testWidgets('default button properties override ButtonTheme properties', (WidgetTester tester) async {
-      BuildContext capturedContext;
+      late BuildContext capturedContext;
       await tester.pumpWidget(
         MaterialApp(
           home: ButtonBar(
@@ -264,7 +264,7 @@ void main() {
     });
 
     testWidgets('ButtonBarTheme button properties override defaults and ButtonTheme properties', (WidgetTester tester) async {
-      BuildContext capturedContext;
+      late BuildContext capturedContext;
       await tester.pumpWidget(
         MaterialApp(
           home: ButtonBarTheme(
@@ -297,7 +297,7 @@ void main() {
     });
 
     testWidgets('ButtonBar button properties override ButtonBarTheme, defaults and ButtonTheme properties', (WidgetTester tester) async {
-      BuildContext capturedContext;
+      late BuildContext capturedContext;
       await tester.pumpWidget(
         MaterialApp(
           home: ButtonBarTheme(
@@ -570,8 +570,75 @@ void main() {
         final Rect containerOneRect = tester.getRect(find.byKey(keyOne));
         final Rect containerTwoRect = tester.getRect(find.byKey(keyTwo));
         // Second [Container] should appear above first container.
-        expect(containerTwoRect.bottom, containerOneRect.top);
+        expect(containerTwoRect.bottom, lessThanOrEqualTo(containerOneRect.top));
       },
     );
+
+    testWidgets(
+      'ButtonBar has no spacing by default when overflowing',
+      (WidgetTester tester) async {
+        final Key keyOne = UniqueKey();
+        final Key keyTwo = UniqueKey();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ButtonBar(
+              alignment: MainAxisAlignment.center,
+              // Set padding to zero to align buttons with edge of button bar.
+              buttonPadding: EdgeInsets.zero,
+              children: <Widget>[
+                Container(key: keyOne, height: 50.0, width: 500.0),
+                Container(key: keyTwo, height: 50.0, width: 500.0),
+              ],
+            ),
+          ),
+        );
+
+        final Rect containerOneRect = tester.getRect(find.byKey(keyOne));
+        final Rect containerTwoRect = tester.getRect(find.byKey(keyTwo));
+        expect(containerOneRect.bottom, containerTwoRect.top);
+      },
+    );
+
+    testWidgets(
+      "ButtonBar's children respects overflowButtonSpacing when overflowing",
+      (WidgetTester tester) async {
+        final Key keyOne = UniqueKey();
+        final Key keyTwo = UniqueKey();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ButtonBar(
+              alignment: MainAxisAlignment.center,
+              // Set padding to zero to align buttons with edge of button bar.
+              buttonPadding: EdgeInsets.zero,
+              // Set the overflow button spacing to ensure add some space between
+              // buttons in an overflow case.
+              overflowButtonSpacing: 10.0,
+              children: <Widget>[
+                Container(key: keyOne, height: 50.0, width: 500.0),
+                Container(key: keyTwo, height: 50.0, width: 500.0),
+              ],
+            ),
+          ),
+        );
+
+        final Rect containerOneRect = tester.getRect(find.byKey(keyOne));
+        final Rect containerTwoRect = tester.getRect(find.byKey(keyTwo));
+        expect(containerOneRect.bottom, containerTwoRect.top - 10.0);
+      },
+    );
+  });
+
+  testWidgets('_RenderButtonBarRow.constraints does not work before layout', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: ButtonBar()),
+      Duration.zero,
+      EnginePhase.build,
+    );
+
+    final Finder buttonBar = find.byWidgetPredicate((Widget w) => '${w.runtimeType}' == '_ButtonBarRow');
+    final RenderBox renderButtonBar = tester.renderObject(buttonBar) as RenderBox;
+
+    expect(renderButtonBar.debugNeedsLayout, isTrue);
+    expect(() => renderButtonBar.constraints, throwsStateError);
   });
 }

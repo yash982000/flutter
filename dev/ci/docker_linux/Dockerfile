@@ -10,6 +10,8 @@
 # for performing pushes to production, and so this image is quite a bit larger
 # than strictly needed for just building Flutter apps.
 
+# Last manual update 2020-10-05 (changing this comment will re-build image)
+
 # Note: updating past stretch (Debian 9) will bump Java past version 8,
 # which will break the Android SDK.
 FROM debian:stretch
@@ -78,7 +80,7 @@ RUN unzip -q -d "${ANDROID_TOOLS_ROOT}" "${ANDROID_SDK_ARCHIVE}"
 # (it prints install progress WAY too often).
 RUN yes "y" | "${ANDROID_TOOLS_ROOT}/tools/bin/sdkmanager" "tools" > /dev/null
 RUN yes "y" | "${ANDROID_TOOLS_ROOT}/tools/bin/sdkmanager" "build-tools;28.0.3" > /dev/null
-RUN yes "y" | "${ANDROID_TOOLS_ROOT}/tools/bin/sdkmanager" "platforms;android-28" > /dev/null
+RUN yes "y" | "${ANDROID_TOOLS_ROOT}/tools/bin/sdkmanager" "platforms;android-30" > /dev/null
 RUN yes "y" | "${ANDROID_TOOLS_ROOT}/tools/bin/sdkmanager" "platform-tools" > /dev/null
 RUN yes "y" | "${ANDROID_TOOLS_ROOT}/tools/bin/sdkmanager" "extras;android;m2repository" > /dev/null
 RUN yes "y" | "${ANDROID_TOOLS_ROOT}/tools/bin/sdkmanager" "extras;google;m2repository" > /dev/null
@@ -90,25 +92,12 @@ ENV PATH="${ANDROID_TOOLS_ROOT}/tools/bin:${PATH}"
 RUN mkdir -p ~/.android
 RUN touch ~/.android/repositories.cfg
 
-# Setup gradle
-ENV GRADLE_ROOT="/opt/gradle"
-RUN mkdir -p "${GRADLE_ROOT}"
-ENV GRADLE_ARCHIVE="${GRADLE_ROOT}/gradle.zip"
-ENV GRADLE_URL="http://services.gradle.org/distributions/gradle-4.4-bin.zip"
-RUN wget --progress=dot:giga "$GRADLE_URL" -O "${GRADLE_ARCHIVE}"
-RUN unzip -q -d "${GRADLE_ROOT}" "${GRADLE_ARCHIVE}"
-ENV PATH="$GRADLE_ROOT/bin:$PATH"
-
 # Add npm to path.
 ENV PATH="/usr/bin:${PATH}"
 RUN dpkg-query -L nodejs
 # Install Firebase
 # This is why we need nodejs installed.
 RUN /usr/bin/npm --verbose install -g firebase-tools
-# TODO(dnfield): Remove this once Firebase has a fix upstream for
-# https://github.com/flutter/flutter/issues/34435
-COPY ci/docker_linux/patch_firebase.sh /root/patch_firebase.sh
-RUN /root/patch_firebase.sh
 
 # Install golang more recent than in repo (necessary for dashing to build)
 RUN curl 'https://dl.google.com/go/go1.13.3.linux-amd64.tar.gz' | tar xvz
@@ -132,10 +121,5 @@ RUN gem install bundler -N
 COPY ci/docker_linux/Gemfile /Gemfile
 COPY ci/docker_linux/Gemfile.lock /Gemfile.lock
 
-RUN bundle install --system
-
-# Install goldctl, for Golden testing
-# Last updated 1/8/19 (update to rebuild Dockerfile with latest goldctl)
-COPY bots/download_goldctl.sh /download_goldctl.sh
-ENV GOLDCTL '/depot_tools/goldctl'
-RUN /download_goldctl.sh
+RUN bundle config set system 'true' && \
+  bundle install --system

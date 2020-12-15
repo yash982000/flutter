@@ -2,14 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-@TestOn('!chrome') // diagnostics use Platform.operatingSystem.
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 
 class Leaf extends StatefulWidget {
-  const Leaf({ Key key, this.child }) : super(key: key);
+  const Leaf({
+    Key? key,
+    required this.child,
+  }) : super(key: key);
   final Widget child;
   @override
   _LeafState createState() => _LeafState();
@@ -71,7 +74,7 @@ void main() {
     expect(find.byKey(const GlobalObjectKey<_LeafState>(60)), findsOneWidget);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(61)), findsOneWidget);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(90), skipOffstage: false), findsNothing);
-    const GlobalObjectKey<_LeafState>(60).currentState.setKeepAlive(true);
+    const GlobalObjectKey<_LeafState>(60).currentState!.setKeepAlive(true);
     await tester.drag(find.byType(ListView), const Offset(0.0, 300.0)); // back to top
     await tester.pump();
     expect(find.byKey(const GlobalObjectKey<_LeafState>(3)), findsOneWidget);
@@ -81,7 +84,7 @@ void main() {
     expect(find.byKey(const GlobalObjectKey<_LeafState>(60)), findsNothing);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(61), skipOffstage: false), findsNothing);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(90), skipOffstage: false), findsNothing);
-    const GlobalObjectKey<_LeafState>(60).currentState.setKeepAlive(false);
+    const GlobalObjectKey<_LeafState>(60).currentState!.setKeepAlive(false);
     await tester.pump();
     expect(find.byKey(const GlobalObjectKey<_LeafState>(3)), findsOneWidget);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(30)), findsOneWidget);
@@ -118,7 +121,7 @@ void main() {
     expect(find.byKey(const GlobalObjectKey<_LeafState>(60)), findsOneWidget);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(61)), findsOneWidget);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(90), skipOffstage: false), findsNothing);
-    const GlobalObjectKey<_LeafState>(60).currentState.setKeepAlive(true);
+    const GlobalObjectKey<_LeafState>(60).currentState!.setKeepAlive(true);
     await tester.drag(find.byType(ListView), const Offset(0.0, 300.0)); // back to top
     await tester.pump();
     expect(find.byKey(const GlobalObjectKey<_LeafState>(3)), findsOneWidget);
@@ -128,7 +131,7 @@ void main() {
     expect(find.byKey(const GlobalObjectKey<_LeafState>(60)), findsNothing);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(61), skipOffstage: false), findsNothing);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(90), skipOffstage: false), findsNothing);
-    const GlobalObjectKey<_LeafState>(60).currentState.setKeepAlive(false);
+    const GlobalObjectKey<_LeafState>(60).currentState!.setKeepAlive(false);
     await tester.pump();
     expect(find.byKey(const GlobalObjectKey<_LeafState>(3)), findsOneWidget);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(30)), findsOneWidget);
@@ -167,7 +170,7 @@ void main() {
     expect(find.byKey(const GlobalObjectKey<_LeafState>(60)), findsOneWidget);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(61)), findsOneWidget);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(90), skipOffstage: false), findsNothing);
-    const GlobalObjectKey<_LeafState>(60).currentState.setKeepAlive(true);
+    const GlobalObjectKey<_LeafState>(60).currentState!.setKeepAlive(true);
     await tester.drag(find.byType(GridView), const Offset(0.0, 300.0)); // back to top
     await tester.pump();
     expect(find.byKey(const GlobalObjectKey<_LeafState>(3)), findsOneWidget);
@@ -177,7 +180,7 @@ void main() {
     expect(find.byKey(const GlobalObjectKey<_LeafState>(60)), findsNothing);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(61), skipOffstage: false), findsNothing);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(90), skipOffstage: false), findsNothing);
-    const GlobalObjectKey<_LeafState>(60).currentState.setKeepAlive(false);
+    const GlobalObjectKey<_LeafState>(60).currentState!.setKeepAlive(false);
     await tester.pump();
     expect(find.byKey(const GlobalObjectKey<_LeafState>(3)), findsOneWidget);
     expect(find.byKey(const GlobalObjectKey<_LeafState>(30)), findsOneWidget);
@@ -289,8 +292,9 @@ void main() {
       '                     │ crossAxisDirection: right\n'
       '                     │ offset: ScrollPositionWithSingleContext#00000(offset: 0.0, range:\n'
       '                     │   0.0..39400.0, viewport: 600.0, ScrollableState,\n'
-      '                     │   AlwaysScrollableScrollPhysics -> ClampingScrollPhysics,\n'
-      '                     │   IdleScrollActivity#00000, ScrollDirection.idle)\n'
+      '                     │   AlwaysScrollableScrollPhysics -> ClampingScrollPhysics ->\n'
+      '                     │   RangeMaintainingScrollPhysics, IdleScrollActivity#00000,\n'
+      '                     │   ScrollDirection.idle)\n'
       '                     │ anchor: 0.0\n'
       '                     │\n'
       '                     └─center child: RenderSliverFixedExtentList#00000 relayoutBoundary=up1\n'
@@ -299,8 +303,8 @@ void main() {
       '                       │   GrowthDirection.forward, ScrollDirection.idle, scrollOffset:\n'
       '                       │   0.0, remainingPaintExtent: 600.0, crossAxisExtent: 800.0,\n'
       '                       │   crossAxisDirection: AxisDirection.right,\n'
-      '                       │   viewportMainAxisExtent: 600.0, remainingCacheExtent: 850.0\n'
-      '                       │   cacheOrigin: 0.0 )\n'
+      '                       │   viewportMainAxisExtent: 600.0, remainingCacheExtent: 850.0,\n'
+      '                       │   cacheOrigin: 0.0)\n'
       '                       │ geometry: SliverGeometry(scrollExtent: 40000.0, paintExtent:\n'
       '                       │   600.0, maxPaintExtent: 40000.0, hasVisualOverflow: true,\n'
       '                       │   cacheExtent: 850.0)\n'
@@ -342,10 +346,10 @@ void main() {
       '                             constraints: BoxConstraints(w=800.0, h=400.0)\n'
       '                             size: Size(800.0, 400.0)\n'
     ));
-    const GlobalObjectKey<_LeafState>(0).currentState.setKeepAlive(true);
+    const GlobalObjectKey<_LeafState>(0).currentState!.setKeepAlive(true);
     await tester.drag(find.byType(ListView), const Offset(0.0, -1000.0));
     await tester.pump();
-    const GlobalObjectKey<_LeafState>(3).currentState.setKeepAlive(true);
+    const GlobalObjectKey<_LeafState>(3).currentState!.setKeepAlive(true);
     await tester.drag(find.byType(ListView), const Offset(0.0, -1000.0));
     await tester.pump();
     expect(tester.binding.renderView.toStringDeep(minLevel: DiagnosticLevel.info), equalsIgnoringHashCodes(
@@ -436,8 +440,9 @@ void main() {
       '                     │ crossAxisDirection: right\n'
       '                     │ offset: ScrollPositionWithSingleContext#00000(offset: 2000.0,\n'
       '                     │   range: 0.0..39400.0, viewport: 600.0, ScrollableState,\n'
-      '                     │   AlwaysScrollableScrollPhysics -> ClampingScrollPhysics,\n'
-      '                     │   IdleScrollActivity#00000, ScrollDirection.idle)\n'
+      '                     │   AlwaysScrollableScrollPhysics -> ClampingScrollPhysics ->\n'
+      '                     │   RangeMaintainingScrollPhysics, IdleScrollActivity#00000,\n'
+      '                     │   ScrollDirection.idle)\n'
       '                     │ anchor: 0.0\n'
       '                     │\n'
       '                     └─center child: RenderSliverFixedExtentList#00000 relayoutBoundary=up1\n'
@@ -446,8 +451,8 @@ void main() {
       '                       │   GrowthDirection.forward, ScrollDirection.idle, scrollOffset:\n'
       '                       │   2000.0, remainingPaintExtent: 600.0, crossAxisExtent: 800.0,\n'
       '                       │   crossAxisDirection: AxisDirection.right,\n'
-      '                       │   viewportMainAxisExtent: 600.0, remainingCacheExtent: 1100.0\n'
-      '                       │   cacheOrigin: -250.0 )\n'
+      '                       │   viewportMainAxisExtent: 600.0, remainingCacheExtent: 1100.0,\n'
+      '                       │   cacheOrigin: -250.0)\n'
       '                       │ geometry: SliverGeometry(scrollExtent: 40000.0, paintExtent:\n'
       '                       │   600.0, maxPaintExtent: 40000.0, hasVisualOverflow: true,\n'
       '                       │   cacheExtent: 1100.0)\n'
@@ -525,6 +530,6 @@ void main() {
       '                             constraints: BoxConstraints(w=800.0, h=400.0)\n'
       '                             size: Size(800.0, 400.0)\n'
     ));
-  });
+  }, skip: kIsWeb);
 
 }

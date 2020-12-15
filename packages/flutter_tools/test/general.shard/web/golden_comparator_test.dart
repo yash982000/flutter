@@ -2,11 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter_tools/src/test/flutter_web_platform.dart';
+import 'package:flutter_tools/src/test/flutter_web_goldens.dart';
 import 'package:flutter_tools/src/test/test_compiler.dart';
 import 'package:flutter_tools/src/globals.dart' as globals;
 import 'package:mockito/mockito.dart';
@@ -40,7 +39,6 @@ void main() {
 
       testbed = Testbed(overrides: <Type, Generator>{
         ProcessManager: () {
-          print('in get process manager');
           return mockProcessManager;
         }
       });

@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
 import 'package:meta/meta.dart';
 
 import '../artifacts.dart';
@@ -12,7 +10,6 @@ import '../base/common.dart';
 import '../base/file_system.dart';
 import '../base/io.dart';
 import '../base/logger.dart';
-import '../base/process.dart';
 import '../base/utils.dart';
 import '../build_info.dart';
 import '../bundle.dart';
@@ -20,7 +17,6 @@ import '../convert.dart';
 import '../devfs.dart';
 import '../globals.dart' as globals;
 import '../project.dart';
-import '../reporting/reporting.dart';
 
 import 'fuchsia_pm.dart';
 import 'fuchsia_sdk.dart';
@@ -29,7 +25,7 @@ Future<void> _timedBuildStep(String name, Future<void> Function() action) async 
   final Stopwatch sw = Stopwatch()..start();
   await action();
   globals.printTrace('$name: ${sw.elapsedMilliseconds} ms.');
-  flutterUsage.sendTiming('build', name, Duration(milliseconds: sw.elapsedMilliseconds));
+  globals.flutterUsage.sendTiming('build', name, Duration(milliseconds: sw.elapsedMilliseconds));
 }
 
 Future<void> _validateCmxFile(FuchsiaProject fuchsiaProject) async {
@@ -85,10 +81,7 @@ Future<void> _genSnapshot(
   final String appName = fuchsiaProject.project.manifest.appName;
   final String dilPath = globals.fs.path.join(outDir, '$appName.dil');
 
-  final String vmSnapshotData = globals.fs.path.join(outDir, 'vm_data.aotsnapshot');
-  final String vmSnapshotInstructions = globals.fs.path.join(outDir, 'vm_instructions.aotsnapshot');
-  final String snapshotData = globals.fs.path.join(outDir, 'data.aotsnapshot');
-  final String snapshotInstructions = globals.fs.path.join(outDir, 'instructions.aotsnapshot');
+  final String elf = globals.fs.path.join(outDir, 'elf.aotsnapshot');
 
   final String genSnapshot = globals.artifacts.getArtifactPath(
     Artifact.genSnapshot,
@@ -98,23 +91,18 @@ Future<void> _genSnapshot(
 
   final List<String> command = <String>[
     genSnapshot,
-    '--no_causal_async_stacks',
     '--deterministic',
-    '--snapshot_kind=app-aot-blobs',
-    '--vm_snapshot_data=$vmSnapshotData',
-    '--vm_snapshot_instructions=$vmSnapshotInstructions',
-    '--isolate_snapshot_data=$snapshotData',
-    '--isolate_snapshot_instructions=$snapshotInstructions',
+    '--snapshot_kind=app-aot-elf',
+    '--elf=$elf',
     if (buildInfo.isDebug) '--enable-asserts',
     dilPath,
   ];
   int result;
   final Status status = globals.logger.startProgress(
     'Compiling Fuchsia application to native code...',
-    timeout: null,
   );
   try {
-    result = await processUtils.stream(command, trace: true);
+    result = await globals.processUtils.stream(command, trace: true);
   } finally {
     status.cancel();
   }
@@ -133,11 +121,10 @@ Future<void> _buildAssets(
     manifestPath: fuchsiaProject.project.pubspecFile.path,
     packagesPath: fuchsiaProject.project.packagesFile.path,
     assetDirPath: assetDir,
-    includeDefaultFonts: false,
   );
 
   final Map<String, DevFSContent> assetEntries =
-      Map<String, DevFSContent>.from(assets.entries);
+      Map<String, DevFSContent>.of(assets.entries);
   await writeBundle(globals.fs.directory(assetDir), assetEntries);
 
   final String appName = fuchsiaProject.project.manifest.appName;
@@ -212,21 +199,9 @@ Future<void> _buildPackage(
   final File manifestFile = globals.fs.file(packageManifest);
 
   if (buildInfo.usesAot) {
-    final String vmSnapshotData = globals.fs.path.join(outDir, 'vm_data.aotsnapshot');
-    final String vmSnapshotInstructions = globals.fs.path.join(outDir, 'vm_instructions.aotsnapshot');
-    final String snapshotData = globals.fs.path.join(outDir, 'data.aotsnapshot');
-    final String snapshotInstructions = globals.fs.path.join(outDir, 'instructions.aotsnapshot');
+    final String elf = globals.fs.path.join(outDir, 'elf.aotsnapshot');
     manifestFile.writeAsStringSync(
-      'data/$appName/vm_snapshot_data.bin=$vmSnapshotData\n');
-    manifestFile.writeAsStringSync(
-      'data/$appName/vm_snapshot_instructions.bin=$vmSnapshotInstructions\n',
-      mode: FileMode.append);
-    manifestFile.writeAsStringSync(
-      'data/$appName/isolate_snapshot_data.bin=$snapshotData\n',
-      mode: FileMode.append);
-    manifestFile.writeAsStringSync(
-      'data/$appName/isolate_snapshot_instructions.bin=$snapshotInstructions\n',
-      mode: FileMode.append);
+      'data/$appName/app_aot_snapshot.so=$elf\n');
   } else {
     final String dilpmanifest = globals.fs.path.join(outDir, '$appName.dilpmanifest');
     manifestFile.writeAsStringSync(globals.fs.file(dilpmanifest).readAsStringSync());

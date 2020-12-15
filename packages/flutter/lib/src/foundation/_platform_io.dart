@@ -8,15 +8,19 @@ import 'platform.dart' as platform;
 
 /// The dart:io implementation of [platform.defaultTargetPlatform].
 platform.TargetPlatform get defaultTargetPlatform {
-  platform.TargetPlatform result;
-  if (Platform.isIOS) {
-    result = platform.TargetPlatform.iOS;
-  } else if (Platform.isMacOS) {
-    result = platform.TargetPlatform.macOS;
-  } else if (Platform.isAndroid) {
+  platform.TargetPlatform? result;
+  if (Platform.isAndroid) {
     result = platform.TargetPlatform.android;
+  } else if (Platform.isIOS) {
+    result = platform.TargetPlatform.iOS;
   } else if (Platform.isFuchsia) {
     result = platform.TargetPlatform.fuchsia;
+  } else if (Platform.isLinux) {
+    result = platform.TargetPlatform.linux;
+  } else if (Platform.isMacOS) {
+    result = platform.TargetPlatform.macOS;
+  } else if (Platform.isWindows) {
+    result = platform.TargetPlatform.windows;
   }
   assert(() {
     if (Platform.environment.containsKey('FLUTTER_TEST'))
@@ -32,5 +36,5 @@ platform.TargetPlatform get defaultTargetPlatform {
       'Consider updating the list of TargetPlatforms to include this platform.'
     );
   }
-  return result;
+  return result!;
 }

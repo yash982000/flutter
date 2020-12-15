@@ -2,297 +2,312 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
+import 'package:archive/archive.dart';
 import 'package:file/memory.dart';
 import 'package:flutter_tools/src/android/android_sdk.dart';
 import 'package:flutter_tools/src/android/android_studio.dart';
 import 'package:flutter_tools/src/android/gradle.dart';
-import 'package:flutter_tools/src/android/gradle_utils.dart';
 import 'package:flutter_tools/src/android/gradle_errors.dart';
+import 'package:flutter_tools/src/android/gradle_utils.dart';
 import 'package:flutter_tools/src/artifacts.dart';
-import 'package:flutter_tools/src/base/context.dart';
 import 'package:flutter_tools/src/base/common.dart';
+import 'package:flutter_tools/src/base/context.dart';
 import 'package:flutter_tools/src/base/file_system.dart';
 import 'package:flutter_tools/src/base/io.dart';
+import 'package:flutter_tools/src/base/logger.dart';
+import 'package:flutter_tools/src/base/platform.dart';
 import 'package:flutter_tools/src/base/terminal.dart';
 import 'package:flutter_tools/src/build_info.dart';
 import 'package:flutter_tools/src/cache.dart';
+import 'package:flutter_tools/src/globals.dart' as globals;
 import 'package:flutter_tools/src/ios/xcodeproj.dart';
 import 'package:flutter_tools/src/project.dart';
 import 'package:flutter_tools/src/reporting/reporting.dart';
-import 'package:flutter_tools/src/globals.dart' as globals;
 import 'package:mockito/mockito.dart';
-import 'package:platform/platform.dart';
 import 'package:process/process.dart';
 
 import '../../src/common.dart';
 import '../../src/context.dart';
 import '../../src/mocks.dart';
-import '../../src/pubspec_schema.dart';
 
 void main() {
   Cache.flutterRoot = getFlutterRoot();
 
   group('build artifacts', () {
-    test('getApkDirectory in app projects', () {
+    FileSystem fileSystem;
+
+    setUp(() {
+      fileSystem = MemoryFileSystem.test();
+    });
+
+    testWithoutContext('getApkDirectory in app projects', () {
       final FlutterProject project = MockFlutterProject();
       final AndroidProject androidProject = MockAndroidProject();
       when(project.android).thenReturn(androidProject);
       when(project.isModule).thenReturn(false);
-      when(androidProject.buildDirectory).thenReturn(globals.fs.directory('foo'));
+      when(androidProject.buildDirectory).thenReturn(fileSystem.directory('foo'));
 
       expect(
         getApkDirectory(project).path,
-        equals(globals.fs.path.join('foo', 'app', 'outputs', 'apk')),
+        equals(fileSystem.path.join('foo', 'app', 'outputs', 'flutter-apk')),
       );
     });
 
-    test('getApkDirectory in module projects', () {
+    testWithoutContext('getApkDirectory in module projects', () {
       final FlutterProject project = MockFlutterProject();
       final AndroidProject androidProject = MockAndroidProject();
       when(project.android).thenReturn(androidProject);
       when(project.isModule).thenReturn(true);
-      when(androidProject.buildDirectory).thenReturn(globals.fs.directory('foo'));
+      when(androidProject.buildDirectory).thenReturn(fileSystem.directory('foo'));
 
       expect(
         getApkDirectory(project).path,
-        equals(globals.fs.path.join('foo', 'host', 'outputs', 'apk')),
+        equals(fileSystem.path.join('foo', 'host', 'outputs', 'apk')),
       );
     });
 
-    test('getBundleDirectory in app projects', () {
+    testWithoutContext('getBundleDirectory in app projects', () {
       final FlutterProject project = MockFlutterProject();
       final AndroidProject androidProject = MockAndroidProject();
       when(project.android).thenReturn(androidProject);
       when(project.isModule).thenReturn(false);
-      when(androidProject.buildDirectory).thenReturn(globals.fs.directory('foo'));
+      when(androidProject.buildDirectory).thenReturn(fileSystem.directory('foo'));
 
       expect(
         getBundleDirectory(project).path,
-        equals(globals.fs.path.join('foo', 'app', 'outputs', 'bundle')),
+        equals(fileSystem.path.join('foo', 'app', 'outputs', 'bundle')),
       );
     });
 
-    test('getBundleDirectory in module projects', () {
+    testWithoutContext('getBundleDirectory in module projects', () {
       final FlutterProject project = MockFlutterProject();
       final AndroidProject androidProject = MockAndroidProject();
       when(project.android).thenReturn(androidProject);
       when(project.isModule).thenReturn(true);
-      when(androidProject.buildDirectory).thenReturn(globals.fs.directory('foo'));
+      when(androidProject.buildDirectory).thenReturn(fileSystem.directory('foo'));
 
       expect(
         getBundleDirectory(project).path,
-        equals(globals.fs.path.join('foo', 'host', 'outputs', 'bundle')),
+        equals(fileSystem.path.join('foo', 'host', 'outputs', 'bundle')),
       );
     });
 
-    test('getRepoDirectory', () {
+    testWithoutContext('getRepoDirectory', () {
       expect(
-        getRepoDirectory(globals.fs.directory('foo')).path,
-        equals(globals.fs.path.join('foo','outputs', 'repo')),
+        getRepoDirectory(fileSystem.directory('foo')).path,
+        equals(fileSystem.path.join('foo','outputs', 'repo')),
       );
     });
   });
 
   group('gradle tasks', () {
-    test('assemble release', () {
+    testWithoutContext('assemble release', () {
       expect(
-        getAssembleTaskFor(const BuildInfo(BuildMode.release, null)),
+        getAssembleTaskFor(const BuildInfo(BuildMode.release, null, treeShakeIcons: false)),
         equals('assembleRelease'),
       );
       expect(
-        getAssembleTaskFor(const BuildInfo(BuildMode.release, 'flavorFoo')),
+        getAssembleTaskFor(const BuildInfo(BuildMode.release, 'flavorFoo', treeShakeIcons: false)),
         equals('assembleFlavorFooRelease'),
       );
     });
 
-    test('assemble debug', () {
+    testWithoutContext('assemble debug', () {
       expect(
-        getAssembleTaskFor(const BuildInfo(BuildMode.debug, null)),
+        getAssembleTaskFor(const BuildInfo(BuildMode.debug, null, treeShakeIcons: false)),
         equals('assembleDebug'),
       );
       expect(
-        getAssembleTaskFor(const BuildInfo(BuildMode.debug, 'flavorFoo')),
+        getAssembleTaskFor(const BuildInfo(BuildMode.debug, 'flavorFoo', treeShakeIcons: false)),
         equals('assembleFlavorFooDebug'),
       );
     });
 
-    test('assemble profile', () {
+    testWithoutContext('assemble profile', () {
       expect(
-        getAssembleTaskFor(const BuildInfo(BuildMode.profile, null)),
+        getAssembleTaskFor(const BuildInfo(BuildMode.profile, null, treeShakeIcons: false)),
         equals('assembleProfile'),
       );
       expect(
-        getAssembleTaskFor(const BuildInfo(BuildMode.profile, 'flavorFoo')),
+        getAssembleTaskFor(const BuildInfo(BuildMode.profile, 'flavorFoo', treeShakeIcons: false)),
         equals('assembleFlavorFooProfile'),
       );
     });
   });
 
   group('findBundleFile', () {
-    final Usage mockUsage = MockUsage();
+    FileSystem fileSystem;
+    Usage mockUsage;
 
-    testUsingContext('Finds app bundle when flavor contains underscores in release mode', () {
-      final FlutterProject project = generateFakeAppBundle('foo_barRelease', 'app.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, 'foo_bar'));
-      expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barRelease', 'app.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+    setUp(() {
+      fileSystem = MemoryFileSystem.test();
+      mockUsage = MockUsage();
     });
 
-    testUsingContext('Finds app bundle when flavor doesn\'t contain underscores in release mode', () {
-      final FlutterProject project = generateFakeAppBundle('fooRelease', 'app.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, 'foo'));
+    testWithoutContext('Finds app bundle when flavor contains underscores in release mode', () {
+      final FlutterProject project = generateFakeAppBundle('foo_barRelease', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, 'foo_bar', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'fooRelease', 'app.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barRelease', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle when no flavor is used in release mode', () {
-      final FlutterProject project = generateFakeAppBundle('release', 'app.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, null));
+    testWithoutContext('Finds app bundle when flavor contains underscores and uppercase letters in release mode', () {
+      final FlutterProject project = generateFakeAppBundle('foo_barRelease', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, 'foo_Bar', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'release', 'app.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barRelease', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle when flavor contains underscores in debug mode', () {
-      final FlutterProject project = generateFakeAppBundle('foo_barDebug', 'app.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, 'foo_bar'));
+    testWithoutContext("Finds app bundle when flavor doesn't contain underscores in release mode", () {
+      final FlutterProject project = generateFakeAppBundle('fooRelease', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, 'foo', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barDebug', 'app.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'fooRelease', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle when flavor doesn\'t contain underscores in debug mode', () {
-      final FlutterProject project = generateFakeAppBundle('fooDebug', 'app.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, 'foo'));
+    testWithoutContext("Finds app bundle when flavor doesn't contain underscores but contains uppercase letters in release mode", () {
+      final FlutterProject project = generateFakeAppBundle('fooaRelease', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, 'fooA', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'fooDebug', 'app.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'fooaRelease', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle when no flavor is used in debug mode', () {
-      final FlutterProject project = generateFakeAppBundle('debug', 'app.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, null));
+    testWithoutContext('Finds app bundle when no flavor is used in release mode', () {
+      final FlutterProject project = generateFakeAppBundle('release', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, null, treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'debug', 'app.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'release', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle when flavor contains underscores in profile mode', () {
-      final FlutterProject project = generateFakeAppBundle('foo_barProfile', 'app.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, 'foo_bar'));
+    testWithoutContext('Finds app bundle when flavor contains underscores in debug mode', () {
+      final FlutterProject project = generateFakeAppBundle('foo_barDebug', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, 'foo_bar', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barProfile', 'app.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barDebug', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle when flavor doesn\'t contain underscores in profile mode', () {
-      final FlutterProject project = generateFakeAppBundle('fooProfile', 'app.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, 'foo'));
+    testWithoutContext('Finds app bundle when flavor contains underscores and uppercase letters in debug mode', () {
+      final FlutterProject project = generateFakeAppBundle('foo_barDebug', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, 'foo_Bar', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'fooProfile', 'app.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barDebug', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle when no flavor is used in profile mode', () {
-      final FlutterProject project = generateFakeAppBundle('profile', 'app.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, null));
+    testWithoutContext("Finds app bundle when flavor doesn't contain underscores in debug mode", () {
+      final FlutterProject project = generateFakeAppBundle('fooDebug', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, 'foo', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'profile', 'app.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'fooDebug', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle in release mode - Gradle 3.5', () {
-      final FlutterProject project = generateFakeAppBundle('release', 'app-release.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, null));
+    testWithoutContext("Finds app bundle when flavor doesn't contain underscores but contains uppercase letters in debug mode", () {
+      final FlutterProject project = generateFakeAppBundle('fooaDebug', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, 'fooA', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'release', 'app-release.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'fooaDebug', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle in profile mode - Gradle 3.5', () {
-      final FlutterProject project = generateFakeAppBundle('profile', 'app-profile.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, null));
+    testWithoutContext('Finds app bundle when no flavor is used in debug mode', () {
+      final FlutterProject project = generateFakeAppBundle('debug', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, null, treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'profile', 'app-profile.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'debug', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle in debug mode - Gradle 3.5', () {
-      final FlutterProject project = generateFakeAppBundle('debug', 'app-debug.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, null));
+    testWithoutContext('Finds app bundle when flavor contains underscores in profile mode', () {
+      final FlutterProject project = generateFakeAppBundle('foo_barProfile', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, 'foo_bar', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'debug', 'app-debug.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barProfile', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle when flavor contains underscores in release mode - Gradle 3.5', () {
-      final FlutterProject project = generateFakeAppBundle('foo_barRelease', 'app-foo_bar-release.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, 'foo_bar'));
+    testWithoutContext('Finds app bundle when flavor contains underscores and uppercase letters in profile mode', () {
+      final FlutterProject project = generateFakeAppBundle('foo_barProfile', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, 'foo_Bar', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barRelease', 'app-foo_bar-release.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barProfile', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle when flavor contains underscores in profile mode - Gradle 3.5', () {
-      final FlutterProject project = generateFakeAppBundle('foo_barProfile', 'app-foo_bar-profile.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, 'foo_bar'));
+    testWithoutContext("Finds app bundle when flavor doesn't contain underscores in profile mode", () {
+      final FlutterProject project = generateFakeAppBundle('fooProfile', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, 'foo', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barProfile', 'app-foo_bar-profile.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'fooProfile', 'app.aab'));
     });
 
-    testUsingContext('Finds app bundle when flavor contains underscores in debug mode - Gradle 3.5', () {
-      final FlutterProject project = generateFakeAppBundle('foo_barDebug', 'app-foo_bar-debug.aab');
-      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, 'foo_bar'));
+    testWithoutContext("Finds app bundle when flavor doesn't contain underscores but contains uppercase letters in profile mode", () {
+      final FlutterProject project = generateFakeAppBundle('fooaProfile', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, 'fooA', treeShakeIcons: false));
       expect(bundle, isNotNull);
-      expect(bundle.path, globals.fs.path.join('irrelevant','app', 'outputs', 'bundle', 'foo_barDebug', 'app-foo_bar-debug.aab'));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'fooaProfile', 'app.aab'));
+    });
+
+    testWithoutContext('Finds app bundle when no flavor is used in profile mode', () {
+      final FlutterProject project = generateFakeAppBundle('profile', 'app.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, null, treeShakeIcons: false));
+      expect(bundle, isNotNull);
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'profile', 'app.aab'));
+    });
+
+    testWithoutContext('Finds app bundle in release mode - Gradle 3.5', () {
+      final FlutterProject project = generateFakeAppBundle('release', 'app-release.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, null, treeShakeIcons: false));
+      expect(bundle, isNotNull);
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'release', 'app-release.aab'));
+    });
+
+    testWithoutContext('Finds app bundle in profile mode - Gradle 3.5', () {
+      final FlutterProject project = generateFakeAppBundle('profile', 'app-profile.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, null, treeShakeIcons: false));
+      expect(bundle, isNotNull);
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'profile', 'app-profile.aab'));
+    });
+
+    testWithoutContext('Finds app bundle in debug mode - Gradle 3.5', () {
+      final FlutterProject project = generateFakeAppBundle('debug', 'app-debug.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, null, treeShakeIcons: false));
+      expect(bundle, isNotNull);
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'debug', 'app-debug.aab'));
+    });
+
+    testWithoutContext('Finds app bundle when flavor contains underscores in release mode - Gradle 3.5', () {
+      final FlutterProject project = generateFakeAppBundle('foo_barRelease', 'app-foo_bar-release.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, 'foo_bar', treeShakeIcons: false));
+      expect(bundle, isNotNull);
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barRelease', 'app-foo_bar-release.aab'));
+    });
+
+    testWithoutContext('Finds app bundle when flavor contains underscores and uppercase letters in release mode - Gradle 3.5', () {
+      final FlutterProject project = generateFakeAppBundle('foo_barRelease', 'app-foo_bar-release.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.release, 'foo_Bar', treeShakeIcons: false));
+      expect(bundle, isNotNull);
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barRelease', 'app-foo_bar-release.aab'));
+    });
+
+    testWithoutContext('Finds app bundle when flavor contains underscores in profile mode - Gradle 3.5', () {
+      final FlutterProject project = generateFakeAppBundle('foo_barProfile', 'app-foo_bar-profile.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.profile, 'foo_bar', treeShakeIcons: false));
+      expect(bundle, isNotNull);
+      expect(bundle.path, fileSystem.path.join('irrelevant', 'app', 'outputs', 'bundle', 'foo_barProfile', 'app-foo_bar-profile.aab'));
+    });
+
+    testWithoutContext('Finds app bundle when flavor contains underscores and uppercase letters in debug mode - Gradle 3.5', () {
+      final FlutterProject project = generateFakeAppBundle('foo_barDebug', 'app-foo_bar-debug.aab', fileSystem);
+      final File bundle = findBundleFile(project, const BuildInfo(BuildMode.debug, 'foo_Bar', treeShakeIcons: false));
+      expect(bundle, isNotNull);
+      expect(bundle.path, fileSystem.path.join('irrelevant','app', 'outputs', 'bundle', 'foo_barDebug', 'app-foo_bar-debug.aab'));
     });
 
     testUsingContext('aab not found', () {
       final FlutterProject project = FlutterProject.current();
       expect(
         () {
-          findBundleFile(project, const BuildInfo(BuildMode.debug, 'foo_bar'));
+          findBundleFile(project, const BuildInfo(BuildMode.debug, 'foo_bar', treeShakeIcons: false));
         },
         throwsToolExit(
           message:
-            'Gradle build failed to produce an .aab file. It\'s likely that this file '
-            'was generated under ${project.android.buildDirectory.path}, but the tool couldn\'t find it.'
+            "Gradle build failed to produce an .aab file. It's likely that this file "
+            "was generated under ${project.android.buildDirectory.path}, but the tool couldn't find it."
         )
       );
       verify(
@@ -301,119 +316,74 @@ void main() {
           any,
           label: 'gradle-expected-file-not-found',
           parameters: const <String, String> {
-            'cd37': 'androidGradlePluginVersion: 5.6.2, fileExtension: .aab',
+            'cd37': 'androidGradlePluginVersion: 6.7, fileExtension: .aab',
           },
         ),
       ).called(1);
     }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
+      FileSystem: () => MemoryFileSystem.test(),
       ProcessManager: () => FakeProcessManager.any(),
       Usage: () => mockUsage,
     });
   });
 
-  group('findApkFiles', () {
-    final Usage mockUsage = MockUsage();
-
-    testUsingContext('Finds APK without flavor in release', () {
-      final FlutterProject project = MockFlutterProject();
-      final AndroidProject androidProject = MockAndroidProject();
-
-      when(project.android).thenReturn(androidProject);
-      when(project.isModule).thenReturn(false);
-      when(androidProject.buildDirectory).thenReturn(globals.fs.directory('irrelevant'));
-
-      final Directory apkDirectory = globals.fs.directory(globals.fs.path.join('irrelevant', 'app', 'outputs', 'apk', 'release'));
-      apkDirectory.createSync(recursive: true);
-      apkDirectory.childFile('app-release.apk').createSync();
-
-      final Iterable<File> apks = findApkFiles(
-        project,
-        const AndroidBuildInfo(BuildInfo(BuildMode.release, '')),
+  group('listApkPaths', () {
+    testWithoutContext('Finds APK without flavor in release', () {
+      final Iterable<String> apks = listApkPaths(
+        const AndroidBuildInfo(BuildInfo(BuildMode.release, '', treeShakeIcons: false)),
       );
-      expect(apks.isNotEmpty, isTrue);
-      expect(apks.first.path, equals(globals.fs.path.join('irrelevant', 'app', 'outputs', 'apk', 'release', 'app-release.apk')));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+
+      expect(apks, <String>['app-release.apk']);
     });
 
-    testUsingContext('Finds APK with flavor in release mode', () {
-      final FlutterProject project = MockFlutterProject();
-      final AndroidProject androidProject = MockAndroidProject();
-
-      when(project.android).thenReturn(androidProject);
-      when(project.isModule).thenReturn(false);
-      when(androidProject.buildDirectory).thenReturn(globals.fs.directory('irrelevant'));
-
-      final Directory apkDirectory = globals.fs.directory(globals.fs.path.join('irrelevant', 'app', 'outputs', 'apk', 'release'));
-      apkDirectory.createSync(recursive: true);
-      apkDirectory.childFile('app-flavor1-release.apk').createSync();
-
-      final Iterable<File> apks = findApkFiles(
-        project,
-        const AndroidBuildInfo(BuildInfo(BuildMode.release, 'flavor1')),
+    testWithoutContext('Finds APK with flavor in release mode', () {
+      final Iterable<String> apks = listApkPaths(
+        const AndroidBuildInfo(BuildInfo(BuildMode.release, 'flavor1', treeShakeIcons: false)),
       );
-      expect(apks.isNotEmpty, isTrue);
-      expect(apks.first.path, equals(globals.fs.path.join('irrelevant', 'app', 'outputs', 'apk', 'release', 'app-flavor1-release.apk')));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+
+      expect(apks, <String>['app-flavor1-release.apk']);
     });
 
-    testUsingContext('Finds APK with flavor in release mode - AGP v3', () {
-      final FlutterProject project = MockFlutterProject();
-      final AndroidProject androidProject = MockAndroidProject();
-
-      when(project.android).thenReturn(androidProject);
-      when(project.isModule).thenReturn(false);
-      when(androidProject.buildDirectory).thenReturn(globals.fs.directory('irrelevant'));
-
-      final Directory apkDirectory = globals.fs.directory(globals.fs.path.join('irrelevant', 'app', 'outputs', 'apk', 'flavor1', 'release'));
-      apkDirectory.createSync(recursive: true);
-      apkDirectory.childFile('app-flavor1-release.apk').createSync();
-
-      final Iterable<File> apks = findApkFiles(
-        project,
-        const AndroidBuildInfo(BuildInfo(BuildMode.release, 'flavor1')),
+    testWithoutContext('Finds APK with flavor in release mode', () {
+      final Iterable<String> apks = listApkPaths(
+        const AndroidBuildInfo(BuildInfo(BuildMode.release, 'flavorA', treeShakeIcons: false)),
       );
-      expect(apks.isNotEmpty, isTrue);
-      expect(apks.first.path, equals(globals.fs.path.join('irrelevant', 'app', 'outputs', 'apk', 'flavor1', 'release', 'app-flavor1-release.apk')));
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
+
+      expect(apks, <String>['app-flavora-release.apk']);
     });
 
-    testUsingContext('apk not found', () {
-      final FlutterProject project = FlutterProject.current();
-      expect(
-        () {
-          findApkFiles(
-            project,
-            const AndroidBuildInfo(BuildInfo(BuildMode.debug, 'foo_bar')),
-          );
-        },
-        throwsToolExit(
-          message:
-            'Gradle build failed to produce an .apk file. It\'s likely that this file '
-            'was generated under ${project.android.buildDirectory.path}, but the tool couldn\'t find it.'
-        )
+    testWithoutContext('Finds APK with flavor in release mode - AGP v3', () {
+      final Iterable<String> apks = listApkPaths(
+        const AndroidBuildInfo(BuildInfo(BuildMode.release, 'flavor1', treeShakeIcons: false)),
       );
-      verify(
-        mockUsage.sendEvent(
-          any,
-          any,
-          label: 'gradle-expected-file-not-found',
-          parameters: const <String, String> {
-            'cd37': 'androidGradlePluginVersion: 5.6.2, fileExtension: .apk',
-          },
-        ),
-      ).called(1);
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      ProcessManager: () => FakeProcessManager.any(),
-      Usage: () => mockUsage,
+
+      expect(apks, <String>['app-flavor1-release.apk']);
     });
+
+    testWithoutContext('Finds APK with split-per-abi', () {
+      final Iterable<String> apks = listApkPaths(
+        const AndroidBuildInfo(BuildInfo(BuildMode.release, 'flavor1', treeShakeIcons: false), splitPerAbi: true),
+      );
+
+      expect(apks, unorderedEquals(<String>[
+        'app-armeabi-v7a-flavor1-release.apk',
+        'app-arm64-v8a-flavor1-release.apk',
+        'app-x86_64-flavor1-release.apk',
+      ]));
+    });
+
+    testWithoutContext('Finds APK with split-per-abi when flavor contains uppercase letters', () {
+      final Iterable<String> apks = listApkPaths(
+        const AndroidBuildInfo(BuildInfo(BuildMode.release, 'flavorA', treeShakeIcons: false), splitPerAbi: true),
+      );
+
+      expect(apks, unorderedEquals(<String>[
+        'app-armeabi-v7a-flavora-release.apk',
+        'app-arm64-v8a-flavora-release.apk',
+        'app-x86_64-flavora-release.apk',
+      ]));
+    });
+
   });
 
   group('gradle build', () {
@@ -421,7 +391,7 @@ void main() {
       expect(() {
         updateLocalProperties(project: FlutterProject.current());
       }, throwsToolExit(
-        message: '$warningMark No Android SDK found. Try setting the ANDROID_HOME environment variable.',
+        message: '$warningMark No Android SDK found. Try setting the ANDROID_SDK_ROOT environment variable.',
       ));
     }, overrides: <Type, Generator>{
       AndroidSdk: () => null,
@@ -457,7 +427,7 @@ void main() {
     });
 
     testUsingContext('create settings_aar.gradle when current settings.gradle loads plugins', () {
-      const String currentSettingsGradle = '''
+      const String currentSettingsGradle = r'''
 include ':app'
 
 def flutterProjectRoot = rootProject.projectDir.parentFile.toPath()
@@ -470,8 +440,10 @@ if (pluginsFile.exists()) {
 
 plugins.each { name, path ->
     def pluginDirectory = flutterProjectRoot.resolve(path).resolve('android').toFile()
-    include ":\$name"
-    project(":\$name").projectDir = pluginDirectory
+    if (pluginDirectory.exists()) {
+        include ":$name"
+        project(":$name").projectDir = pluginDirectory
+    }
 }
 ''';
 
@@ -487,7 +459,7 @@ include ':app'
           'flutter_tools',
           'gradle');
       globals.fs.directory(toolGradlePath).createSync(recursive: true);
-      globals.fs.file(globals.fs.path.join(toolGradlePath, 'deprecated_settings.gradle'))
+      globals.fs.file(globals.fs.path.join(toolGradlePath, 'settings.gradle.legacy_versions'))
           .writeAsStringSync(currentSettingsGradle);
 
       globals.fs.file(globals.fs.path.join(toolGradlePath, 'settings_aar.gradle.tmpl'))
@@ -499,11 +471,11 @@ include ':app'
       expect(tempDir.childFile('settings_aar.gradle').existsSync(), isTrue);
 
     }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
+      FileSystem: () => MemoryFileSystem.test(),
       ProcessManager: () => FakeProcessManager.any(),
     });
 
-    testUsingContext('create settings_aar.gradle when current settings.gradle doesn\'t load plugins', () {
+    testUsingContext("create settings_aar.gradle when current settings.gradle doesn't load plugins", () {
       const String currentSettingsGradle = '''
 include ':app'
 ''';
@@ -520,7 +492,7 @@ include ':app'
           'flutter_tools',
           'gradle');
       globals.fs.directory(toolGradlePath).createSync(recursive: true);
-      globals.fs.file(globals.fs.path.join(toolGradlePath, 'deprecated_settings.gradle'))
+      globals.fs.file(globals.fs.path.join(toolGradlePath, 'settings.gradle.legacy_versions'))
           .writeAsStringSync(currentSettingsGradle);
 
       globals.fs.file(globals.fs.path.join(toolGradlePath, 'settings_aar.gradle.tmpl'))
@@ -532,7 +504,7 @@ include ':app'
       expect(tempDir.childFile('settings_aar.gradle').existsSync(), isTrue);
 
     }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
+      FileSystem: () => MemoryFileSystem.test(),
       ProcessManager: () => FakeProcessManager.any(),
     });
   });
@@ -544,7 +516,7 @@ include ':app'
     FileSystem fs;
 
     setUp(() {
-      fs = MemoryFileSystem();
+      fs = MemoryFileSystem.test();
       mockArtifacts = MockLocalEngineArtifacts();
       mockProcessManager = MockProcessManager();
       android = fakePlatform('android');
@@ -572,16 +544,18 @@ include ':app'
       String expectedBuildName,
       String expectedBuildNumber,
     }) async {
-      when(mockArtifacts.getArtifactPath(Artifact.flutterFramework,
-          platform: TargetPlatform.android_arm, mode: anyNamed('mode'))).thenReturn('engine');
+      when(mockArtifacts.getArtifactPath(
+        Artifact.flutterFramework,
+        platform: TargetPlatform.android_arm,
+        mode: anyNamed('mode'),
+        environmentType: anyNamed('environmentType'),
+      )).thenReturn('engine');
       when(mockArtifacts.engineOutPath).thenReturn(globals.fs.path.join('out', 'android_arm'));
 
       final File manifestFile = globals.fs.file('path/to/project/pubspec.yaml');
       manifestFile.createSync(recursive: true);
       manifestFile.writeAsStringSync(manifest);
 
-      // write schemaData otherwise pubspec.yaml file can't be loaded
-      writeEmptySchemaFile(fs);
 
       updateLocalProperties(
         project: FlutterProject.fromPath('path/to/project'),
@@ -604,7 +578,7 @@ dependencies:
 flutter:
 ''';
 
-      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null);
+      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, treeShakeIcons: false);
       await checkBuildVersion(
         manifest: manifest,
         buildInfo: buildInfo,
@@ -622,7 +596,7 @@ dependencies:
     sdk: flutter
 flutter:
 ''';
-      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null);
+      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, treeShakeIcons: false);
       await checkBuildVersion(
         manifest: manifest,
         buildInfo: buildInfo,
@@ -640,7 +614,7 @@ dependencies:
     sdk: flutter
 flutter:
 ''';
-      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, buildName: '1.0.2');
+      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, buildName: '1.0.2', treeShakeIcons: false);
       await checkBuildVersion(
         manifest: manifest,
         buildInfo: buildInfo,
@@ -658,7 +632,7 @@ dependencies:
     sdk: flutter
 flutter:
 ''';
-      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, buildNumber: '3');
+      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, buildNumber: '3', treeShakeIcons: false);
       await checkBuildVersion(
         manifest: manifest,
         buildInfo: buildInfo,
@@ -676,7 +650,7 @@ dependencies:
     sdk: flutter
 flutter:
 ''';
-      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, buildName: '1.0.2', buildNumber: '3');
+      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, buildName: '1.0.2', buildNumber: '3', treeShakeIcons: false);
       await checkBuildVersion(
         manifest: manifest,
         buildInfo: buildInfo,
@@ -694,7 +668,7 @@ dependencies:
     sdk: flutter
 flutter:
 ''';
-      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, buildName: '1.0.2', buildNumber: '3');
+      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, buildName: '1.0.2', buildNumber: '3', treeShakeIcons: false);
       await checkBuildVersion(
         manifest: manifest,
         buildInfo: buildInfo,
@@ -711,7 +685,7 @@ dependencies:
     sdk: flutter
 flutter:
 ''';
-      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, buildName: '1.0.2', buildNumber: '3');
+      const BuildInfo buildInfo = BuildInfo(BuildMode.release, null, buildName: '1.0.2', buildNumber: '3', treeShakeIcons: false);
       await checkBuildVersion(
         manifest: manifest,
         buildInfo: buildInfo,
@@ -730,19 +704,19 @@ flutter:
 ''';
       await checkBuildVersion(
         manifest: manifest,
-        buildInfo: const BuildInfo(BuildMode.release, null, buildName: null, buildNumber: null),
+        buildInfo: const BuildInfo(BuildMode.release, null, buildName: null, buildNumber: null, treeShakeIcons: false),
         expectedBuildName: null,
         expectedBuildNumber: null,
       );
       await checkBuildVersion(
         manifest: manifest,
-        buildInfo: const BuildInfo(BuildMode.release, null, buildName: '1.0.2', buildNumber: '3'),
+        buildInfo: const BuildInfo(BuildMode.release, null, buildName: '1.0.2', buildNumber: '3', treeShakeIcons: false),
         expectedBuildName: '1.0.2',
         expectedBuildNumber: '3',
       );
       await checkBuildVersion(
         manifest: manifest,
-        buildInfo: const BuildInfo(BuildMode.release, null, buildName: '1.0.3', buildNumber: '4'),
+        buildInfo: const BuildInfo(BuildMode.release, null, buildName: '1.0.3', buildNumber: '4', treeShakeIcons: false),
         expectedBuildName: '1.0.3',
         expectedBuildNumber: '4',
       );
@@ -756,7 +730,7 @@ flutter:
       // Values get unset.
       await checkBuildVersion(
         manifest: manifest,
-        buildInfo: const BuildInfo(BuildMode.release, null, buildName: null, buildNumber: null),
+        buildInfo: const BuildInfo(BuildMode.release, null, buildName: null, buildNumber: null, treeShakeIcons: false),
         expectedBuildName: null,
         expectedBuildNumber: null,
       );
@@ -764,7 +738,7 @@ flutter:
   });
 
   group('gradle version', () {
-    test('should be compatible with the Android plugin version', () {
+    testWithoutContext('should be compatible with the Android plugin version', () {
       // Granular versions.
       expect(getGradleVersionFor('1.0.0'), '2.3');
       expect(getGradleVersionFor('1.0.1'), '2.3');
@@ -801,9 +775,12 @@ flutter:
 
       expect(getGradleVersionFor('3.4.0'), '5.6.2');
       expect(getGradleVersionFor('3.5.0'), '5.6.2');
+
+      expect(getGradleVersionFor('4.0.0'), '6.7');
+      expect(getGradleVersionFor('4.1.0'), '6.7');
     });
 
-    test('throws on unsupported versions', () {
+    testWithoutContext('throws on unsupported versions', () {
       expect(() => getGradleVersionFor('3.6.0'),
           throwsA(predicate<Exception>((Exception e) => e is ToolExit)));
     });
@@ -813,7 +790,7 @@ flutter:
     FileSystem fs;
 
     setUp(() {
-      fs = MemoryFileSystem();
+      fs = MemoryFileSystem.test();
     });
 
     testUsingContext('returns true when the project is using AndroidX', () async {
@@ -857,19 +834,12 @@ flutter:
 
   group('buildPluginsAsAar', () {
     FileSystem fs;
-    MockProcessManager mockProcessManager;
+    FakeProcessManager fakeProcessManager;
     MockAndroidSdk mockAndroidSdk;
 
     setUp(() {
-      fs = MemoryFileSystem();
-
-      mockProcessManager = MockProcessManager();
-      when(mockProcessManager.run(
-        any,
-        workingDirectory: anyNamed('workingDirectory'),
-        environment: anyNamed('environment'),
-      )).thenAnswer((_) async => ProcessResult(1, 0, '', ''));
-
+      fs = MemoryFileSystem.test();
+      fakeProcessManager = FakeProcessManager.list(<FakeCommand>[]);
       mockAndroidSdk = MockAndroidSdk();
       when(mockAndroidSdk.directory).thenReturn('irrelevant');
     });
@@ -926,12 +896,6 @@ plugin2=${plugin2.path}
         .childDirectory('repo')
         .createSync(recursive: true);
 
-      await buildPluginsAsAar(
-        FlutterProject.fromPath(androidDirectory.path),
-        const AndroidBuildInfo(BuildInfo.release),
-        buildDirectory: buildDirectory,
-      );
-
       final String flutterRoot = globals.fs.path.absolute(Cache.flutterRoot);
       final String initScript = globals.fs.path.join(
         flutterRoot,
@@ -940,40 +904,55 @@ plugin2=${plugin2.path}
         'gradle',
         'aar_init_script.gradle',
       );
-      verify(mockProcessManager.run(
-        <String>[
-          'gradlew',
-          '-I=$initScript',
-          '-Pflutter-root=$flutterRoot',
-          '-Poutput-dir=${buildDirectory.path}',
-          '-Pis-plugin=true',
-          '-PbuildNumber=1.0',
-          '-Ptarget-platform=android-arm,android-arm64,android-x64',
-          'assembleAarRelease',
-        ],
-        environment: anyNamed('environment'),
-        workingDirectory: plugin1.childDirectory('android').path),
-      ).called(1);
 
-      verify(mockProcessManager.run(
-        <String>[
-          'gradlew',
-          '-I=$initScript',
-          '-Pflutter-root=$flutterRoot',
-          '-Poutput-dir=${buildDirectory.path}',
-          '-Pis-plugin=true',
-          '-PbuildNumber=1.0',
-          '-Ptarget-platform=android-arm,android-arm64,android-x64',
-          'assembleAarRelease',
-        ],
-        environment: anyNamed('environment'),
-        workingDirectory: plugin2.childDirectory('android').path),
-      ).called(1);
+      fakeProcessManager
+        ..addCommand(FakeCommand(
+          command: <String>[
+            'gradlew',
+            '-I=$initScript',
+            '-Pflutter-root=$flutterRoot',
+            '-Poutput-dir=${buildDirectory.path}',
+            '-Pis-plugin=true',
+            '-PbuildNumber=1.0',
+            '-q',
+            '-Pfont-subset=true',
+            '-Ptarget-platform=android-arm,android-arm64,android-x64',
+            'assembleAarRelease',
+          ],
+          workingDirectory: plugin1.childDirectory('android').path,
+        ))
+        ..addCommand(FakeCommand(
+          command: <String>[
+            'gradlew',
+            '-I=$initScript',
+            '-Pflutter-root=$flutterRoot',
+            '-Poutput-dir=${buildDirectory.path}',
+            '-Pis-plugin=true',
+            '-PbuildNumber=1.0',
+            '-q',
+            '-Pfont-subset=true',
+            '-Ptarget-platform=android-arm,android-arm64,android-x64',
+            'assembleAarRelease',
+          ],
+          workingDirectory: plugin2.childDirectory('android').path,
+        ));
 
+      await buildPluginsAsAar(
+        FlutterProject.fromPath(androidDirectory.path),
+        const AndroidBuildInfo(BuildInfo(
+          BuildMode.release,
+          '',
+          treeShakeIcons: true,
+          dartObfuscation: true,
+          buildNumber: '2.0'
+        )),
+        buildDirectory: buildDirectory,
+      );
+      expect(fakeProcessManager.hasRemainingExpectations, isFalse);
     }, overrides: <Type, Generator>{
       AndroidSdk: () => mockAndroidSdk,
       FileSystem: () => fs,
-      ProcessManager: () => mockProcessManager,
+      ProcessManager: () => fakeProcessManager,
       GradleUtils: () => FakeGradleUtils(),
     });
 
@@ -1016,57 +995,40 @@ plugin1=${plugin1.path}
         const AndroidBuildInfo(BuildInfo.release),
         buildDirectory: buildDirectory,
       );
-
-      final String flutterRoot = globals.fs.path.absolute(Cache.flutterRoot);
-      final String initScript = globals.fs.path.join(
-        flutterRoot,
-        'packages',
-        'flutter_tools',
-        'gradle',
-        'aar_init_script.gradle',
-      );
-      verifyNever(mockProcessManager.run(
-        <String>[
-          'gradlew',
-          '-I=$initScript',
-          '-Pflutter-root=$flutterRoot',
-          '-Poutput-dir=${buildDirectory.path}',
-          '-Pis-plugin=true',
-          '-Ptarget-platform=android-arm,android-arm64,android-x64',
-          'assembleAarRelease',
-        ],
-        environment: anyNamed('environment'),
-        workingDirectory: plugin1.childDirectory('android').path),
-      );
+      expect(fakeProcessManager.hasRemainingExpectations, isFalse);
     }, overrides: <Type, Generator>{
       AndroidSdk: () => mockAndroidSdk,
       FileSystem: () => fs,
-      ProcessManager: () => mockProcessManager,
+      ProcessManager: () => fakeProcessManager,
       GradleUtils: () => FakeGradleUtils(),
     });
   });
 
   group('gradle build', () {
-    final Usage mockUsage = MockUsage();
-
+    Usage mockUsage;
     MockAndroidSdk mockAndroidSdk;
     MockAndroidStudio mockAndroidStudio;
     MockLocalEngineArtifacts mockArtifacts;
     MockProcessManager mockProcessManager;
     FakePlatform android;
     FileSystem fileSystem;
+    FileSystemUtils fileSystemUtils;
     Cache cache;
 
     setUp(() {
-      fileSystem = MemoryFileSystem();
+      mockUsage = MockUsage();
+      fileSystem = MemoryFileSystem.test();
+      fileSystemUtils = MockFileSystemUtils();
       mockAndroidSdk = MockAndroidSdk();
       mockAndroidStudio = MockAndroidStudio();
       mockArtifacts = MockLocalEngineArtifacts();
       mockProcessManager = MockProcessManager();
       android = fakePlatform('android');
 
+      when(mockAndroidSdk.directory).thenReturn('irrelevant');
+
       final Directory rootDirectory = fileSystem.currentDirectory;
-      cache = Cache(
+      cache = Cache.test(
         rootOverride: rootDirectory,
         fileSystem: fileSystem,
       );
@@ -1123,6 +1085,7 @@ plugin1=${plugin1.path}
             BuildInfo(
               BuildMode.release,
               null,
+              treeShakeIcons: false,
             ),
           ),
           target: 'lib/main.dart',
@@ -1202,6 +1165,7 @@ plugin1=${plugin1.path}
             BuildInfo(
               BuildMode.release,
               null,
+              treeShakeIcons: false,
             ),
           ),
           target: 'lib/main.dart',
@@ -1277,6 +1241,7 @@ plugin1=${plugin1.path}
             BuildInfo(
               BuildMode.release,
               null,
+              treeShakeIcons: false,
             ),
           ),
           target: 'lib/main.dart',
@@ -1349,6 +1314,7 @@ plugin1=${plugin1.path}
             BuildInfo(
               BuildMode.release,
               null,
+              treeShakeIcons: false,
             ),
           ),
           target: 'lib/main.dart',
@@ -1356,7 +1322,7 @@ plugin1=${plugin1.path}
           localGradleErrors: const <GradleHandledError>[],
         );
       },
-      throwsA(isInstanceOf<ProcessException>()));
+      throwsA(isA<ProcessException>()));
 
     }, overrides: <Type, Generator>{
       AndroidSdk: () => mockAndroidSdk,
@@ -1366,7 +1332,7 @@ plugin1=${plugin1.path}
       ProcessManager: () => mockProcessManager,
     });
 
-    testUsingContext('logs success event after a sucessful retry', () async {
+    testUsingContext('logs success event after a successful retry', () async {
       int testFnCalled = 0;
       when(mockProcessManager.start(any,
         workingDirectory: anyNamed('workingDirectory'),
@@ -1405,10 +1371,9 @@ plugin1=${plugin1.path}
       fileSystem.directory('build')
         .childDirectory('app')
         .childDirectory('outputs')
-        .childDirectory('apk')
-        .childDirectory('release')
+        .childDirectory('flutter-apk')
         .childFile('app-release.apk')
-        ..createSync(recursive: true);
+        .createSync(recursive: true);
 
       await buildGradleApp(
         project: FlutterProject.current(),
@@ -1416,6 +1381,7 @@ plugin1=${plugin1.path}
           BuildInfo(
             BuildMode.release,
             null,
+            treeShakeIcons: false,
           ),
         ),
         target: 'lib/main.dart',
@@ -1444,7 +1410,90 @@ plugin1=${plugin1.path}
         label: 'gradle-random-event-label-success',
         parameters: anyNamed('parameters'),
       )).called(1);
+    }, overrides: <Type, Generator>{
+      AndroidSdk: () => mockAndroidSdk,
+      Cache: () => cache,
+      FileSystem: () => fileSystem,
+      Platform: () => android,
+      ProcessManager: () => mockProcessManager,
+      Usage: () => mockUsage,
+    });
 
+    testUsingContext('performs code size analysis and sends analytics', () async {
+      when(mockProcessManager.start(any,
+        workingDirectory: anyNamed('workingDirectory'),
+        environment: anyNamed('environment')))
+      .thenAnswer((_) {
+        return Future<Process>.value(createMockProcess(
+          exitCode: 0,
+          stdout: 'irrelevant',
+        ));
+      });
+
+      fileSystem.directory('android')
+        .childFile('build.gradle')
+        .createSync(recursive: true);
+
+      fileSystem.directory('android')
+        .childFile('gradle.properties')
+        .createSync(recursive: true);
+
+      fileSystem.directory('android')
+        .childDirectory('app')
+        .childFile('build.gradle')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('apply from: irrelevant/flutter.gradle');
+
+      final Archive archive = Archive()
+        ..addFile(ArchiveFile('AndroidManifest.xml', 100,  List<int>.filled(100, 0)))
+        ..addFile(ArchiveFile('META-INF/CERT.RSA', 10,  List<int>.filled(10, 0)))
+        ..addFile(ArchiveFile('META-INF/CERT.SF', 10,  List<int>.filled(10, 0)))
+        ..addFile(ArchiveFile('lib/arm64-v8a/libapp.so', 50,  List<int>.filled(50, 0)))
+        ..addFile(ArchiveFile('lib/arm64-v8a/libflutter.so', 50, List<int>.filled(50, 0)));
+
+      fileSystem.directory('build')
+        .childDirectory('app')
+        .childDirectory('outputs')
+        .childDirectory('flutter-apk')
+        .childFile('app-release.apk')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(ZipEncoder().encode(archive));
+
+      fileSystem.file('foo/snapshot.arm64-v8a.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(r'''
+[
+  {
+    "l": "dart:_internal",
+    "c": "SubListIterable",
+    "n": "[Optimized] skip",
+    "s": 2400
+  }
+]''');
+      fileSystem.file('foo/trace.arm64-v8a.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{}');
+
+      await buildGradleApp(
+        project: FlutterProject.current(),
+        androidBuildInfo: const AndroidBuildInfo(
+          BuildInfo(
+            BuildMode.release,
+            null,
+            treeShakeIcons: false,
+            codeSizeDirectory: 'foo',
+          ),
+          targetArchs: <AndroidArch>[AndroidArch.arm64_v8a],
+        ),
+        target: 'lib/main.dart',
+        isBuildingBundle: false,
+        localGradleErrors: <GradleHandledError>[],
+      );
+
+      verify(mockUsage.sendEvent(
+        'code-size-analysis',
+        'apk',
+      )).called(1);
     }, overrides: <Type, Generator>{
       AndroidSdk: () => mockAndroidSdk,
       Cache: () => cache,
@@ -1489,6 +1538,7 @@ plugin1=${plugin1.path}
             BuildInfo(
               BuildMode.release,
               null,
+              treeShakeIcons: false,
             ),
           ),
           target: 'lib/main.dart',
@@ -1541,17 +1591,6 @@ plugin1=${plugin1.path}
     });
 
     testUsingContext('indicates that an APK has been built successfully', () async {
-      when(mockProcessManager.start(any,
-        workingDirectory: anyNamed('workingDirectory'),
-        environment: anyNamed('environment')))
-      .thenAnswer((_) {
-        return Future<Process>.value(
-          createMockProcess(
-            exitCode: 0,
-            stdout: '',
-          ));
-      });
-
       fileSystem.directory('android')
         .childFile('build.gradle')
         .createSync(recursive: true);
@@ -1569,10 +1608,9 @@ plugin1=${plugin1.path}
       fileSystem.directory('build')
         .childDirectory('app')
         .childDirectory('outputs')
-        .childDirectory('apk')
-        .childDirectory('release')
+        .childDirectory('flutter-apk')
         .childFile('app-release.apk')
-        ..createSync(recursive: true);
+        .createSync(recursive: true);
 
       await buildGradleApp(
         project: FlutterProject.current(),
@@ -1580,6 +1618,7 @@ plugin1=${plugin1.path}
           BuildInfo(
             BuildMode.release,
             null,
+            treeShakeIcons: false,
           ),
         ),
         target: 'lib/main.dart',
@@ -1589,7 +1628,7 @@ plugin1=${plugin1.path}
 
       expect(
         testLogger.statusText,
-        contains('Built build/app/outputs/apk/release/app-release.apk (0.0MB)'),
+        contains('Built build/app/outputs/flutter-apk/app-release.apk (0.0MB)'),
       );
 
     }, overrides: <Type, Generator>{
@@ -1597,10 +1636,10 @@ plugin1=${plugin1.path}
       Cache: () => cache,
       FileSystem: () => fileSystem,
       Platform: () => android,
-      ProcessManager: () => mockProcessManager,
+      ProcessManager: () => FakeProcessManager.any(),
     });
 
-    testUsingContext('doesn\'t indicate how to consume an AAR when printHowToConsumeAaar is false', () async {
+    testUsingContext("doesn't indicate how to consume an AAR when printHowToConsumeAaar is false", () async {
       final File manifestFile = fileSystem.file('pubspec.yaml');
       manifestFile.createSync(recursive: true);
       manifestFile.writeAsStringSync('''
@@ -1628,7 +1667,7 @@ plugin1=${plugin1.path}
       fileSystem.directory('build/outputs/repo').createSync(recursive: true);
 
       await buildGradleAar(
-        androidBuildInfo: const AndroidBuildInfo(BuildInfo(BuildMode.release, null)),
+        androidBuildInfo: const AndroidBuildInfo(BuildInfo(BuildMode.release, null, treeShakeIcons: false)),
         project: FlutterProject.current(),
         outputDirectory: fileSystem.directory('build/'),
         target: '',
@@ -1653,15 +1692,19 @@ plugin1=${plugin1.path}
       ProcessManager: () => mockProcessManager,
     });
 
-    testUsingContext('build apk uses selected local engine', () async {
-      when(mockArtifacts.getArtifactPath(Artifact.flutterFramework,
-          platform: TargetPlatform.android_arm, mode: anyNamed('mode'))).thenReturn('engine');
+    testUsingContext('build apk uses selected local engine,the engine abi is arm', () async {
+      when(mockArtifacts.getArtifactPath(
+        Artifact.flutterFramework,
+        platform: TargetPlatform.android_arm,
+        mode: anyNamed('mode'),
+        environmentType: anyNamed('environmentType'),
+      )).thenReturn('engine');
       when(mockArtifacts.engineOutPath).thenReturn(fileSystem.path.join('out', 'android_arm'));
 
       fileSystem.file('out/android_arm/flutter_embedding_release.pom')
         ..createSync(recursive: true)
-        ..writeAsStringSync(
-'''<?xml version="1.0" encoding="UTF-8"?>
+        ..writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
 <project>
   <version>1.0.0-73fd6b049a80bcea2db1f26c7cee434907cd188b</version>
   <dependencies>
@@ -1670,8 +1713,10 @@ plugin1=${plugin1.path}
 ''');
       fileSystem.file('out/android_arm/armeabi_v7a_release.pom').createSync(recursive: true);
       fileSystem.file('out/android_arm/armeabi_v7a_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_arm/armeabi_v7a_release.maven-metadata.xml').createSync(recursive: true);
       fileSystem.file('out/android_arm/flutter_embedding_release.jar').createSync(recursive: true);
       fileSystem.file('out/android_arm/flutter_embedding_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_arm/flutter_embedding_release.maven-metadata.xml').createSync(recursive: true);
 
       fileSystem.file('android/gradlew').createSync(recursive: true);
 
@@ -1713,6 +1758,7 @@ plugin1=${plugin1.path}
             BuildInfo(
               BuildMode.release,
               null,
+              treeShakeIcons: false,
             ),
           ),
           target: 'lib/main.dart',
@@ -1744,15 +1790,369 @@ plugin1=${plugin1.path}
       ProcessManager: () => mockProcessManager,
     });
 
-    testUsingContext('build aar uses selected local engine', () async {
-      when(mockArtifacts.getArtifactPath(Artifact.flutterFramework,
-          platform: TargetPlatform.android_arm, mode: anyNamed('mode'))).thenReturn('engine');
+    testUsingContext(
+        'build apk uses selected local engine,the engine abi is arm64', () async {
+      when(mockArtifacts.getArtifactPath(
+        Artifact.flutterFramework,
+        platform: anyNamed('platform'),
+        mode: anyNamed('mode'),
+        environmentType: anyNamed('environmentType'),
+      )).thenReturn('engine');
+      when(mockArtifacts.engineOutPath).thenReturn(fileSystem.path.join('out', 'android_arm64'));
+
+      fileSystem.file('out/android_arm64/flutter_embedding_release.pom')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <version>1.0.0-73fd6b049a80bcea2db1f26c7cee434907cd188b</version>
+  <dependencies>
+  </dependencies>
+</project>
+''');
+      fileSystem.file('out/android_arm64/arm64_v8a_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_arm64/arm64_v8a_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_arm64/arm64_v8a_release.maven-metadata.xml').createSync(recursive: true);
+      fileSystem.file('out/android_arm64/flutter_embedding_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_arm64/flutter_embedding_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_arm64/flutter_embedding_release.maven-metadata.xml').createSync(recursive: true);
+
+      fileSystem.file('android/gradlew').createSync(recursive: true);
+
+      fileSystem.directory('android')
+          .childFile('gradle.properties')
+          .createSync(recursive: true);
+
+      fileSystem.file('android/build.gradle')
+          .createSync(recursive: true);
+
+      fileSystem.directory('android')
+          .childDirectory('app')
+          .childFile('build.gradle')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('apply from: irrelevant/flutter.gradle');
+
+      // Let any process start. Assert after.
+      when(mockProcessManager.run(
+        any,
+        environment: anyNamed('environment'),
+        workingDirectory: anyNamed('workingDirectory'),
+      )).thenAnswer((_) async => ProcessResult(1, 0, '', ''));
+
+      when(mockProcessManager.start(any,
+          workingDirectory: anyNamed('workingDirectory'),
+          environment: anyNamed('environment')))
+          .thenAnswer((_) {
+        return Future<Process>.value(
+            createMockProcess(
+              exitCode: 1,
+            )
+        );
+      });
+
+      await expectLater(() async {
+        await buildGradleApp(
+          project: FlutterProject.current(),
+          androidBuildInfo: const AndroidBuildInfo(
+            BuildInfo(
+              BuildMode.release,
+              null,
+              treeShakeIcons: false,
+            ),
+          ),
+          target: 'lib/main.dart',
+          isBuildingBundle: false,
+          localGradleErrors: const <GradleHandledError>[],
+        );
+      }, throwsToolExit());
+
+      final List<String> actualGradlewCall = verify(
+        mockProcessManager.start(
+            captureAny,
+            environment: anyNamed('environment'),
+            workingDirectory: anyNamed('workingDirectory')
+        ),
+      ).captured.last as List<String>;
+
+      expect(actualGradlewCall, contains('/android/gradlew'));
+      expect(actualGradlewCall, contains('-Plocal-engine-out=out/android_arm64'));
+      expect(actualGradlewCall, contains('-Plocal-engine-repo=/.tmp_rand0/flutter_tool_local_engine_repo.rand0'));
+      expect(actualGradlewCall, contains('-Plocal-engine-build-mode=release'));
+
+    }, overrides: <Type, Generator>{
+      AndroidSdk: () => mockAndroidSdk,
+      AndroidStudio: () => mockAndroidStudio,
+      Artifacts: () => mockArtifacts,
+      Cache: () => cache,
+      Platform: () => android,
+      FileSystem: () => fileSystem,
+      ProcessManager: () => mockProcessManager,
+    });
+
+    testUsingContext(
+        'build apk uses selected local engine,the engine abi is x86', () async {
+      when(mockArtifacts.getArtifactPath(
+        Artifact.flutterFramework,
+        platform: anyNamed('platform'),
+        mode: anyNamed('mode'),
+        environmentType: anyNamed('environmentType'),
+      )).thenReturn('engine');
+      when(mockArtifacts.engineOutPath).thenReturn(fileSystem.path.join('out', 'android_x86'));
+
+      fileSystem.file('out/android_x86/flutter_embedding_release.pom')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <version>1.0.0-73fd6b049a80bcea2db1f26c7cee434907cd188b</version>
+  <dependencies>
+  </dependencies>
+</project>
+''');
+      fileSystem.file('out/android_x86/x86_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_x86/x86_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_x86/x86_release.maven-metadata.xml').createSync(recursive: true);
+      fileSystem.file('out/android_x86/flutter_embedding_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_x86/flutter_embedding_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_x86/flutter_embedding_release.maven-metadata.xml').createSync(recursive: true);
+
+      fileSystem.file('android/gradlew').createSync(recursive: true);
+
+      fileSystem.directory('android')
+          .childFile('gradle.properties')
+          .createSync(recursive: true);
+
+      fileSystem.file('android/build.gradle')
+          .createSync(recursive: true);
+
+      fileSystem.directory('android')
+          .childDirectory('app')
+          .childFile('build.gradle')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('apply from: irrelevant/flutter.gradle');
+
+      // Let any process start. Assert after.
+      when(mockProcessManager.run(
+        any,
+        environment: anyNamed('environment'),
+        workingDirectory: anyNamed('workingDirectory'),
+      )).thenAnswer((_) async => ProcessResult(1, 0, '', ''));
+
+      when(mockProcessManager.start(any,
+          workingDirectory: anyNamed('workingDirectory'),
+          environment: anyNamed('environment')))
+          .thenAnswer((_) {
+        return Future<Process>.value(
+            createMockProcess(
+              exitCode: 1,
+            )
+        );
+      });
+
+      await expectLater(() async {
+        await buildGradleApp(
+          project: FlutterProject.current(),
+          androidBuildInfo: const AndroidBuildInfo(
+            BuildInfo(
+              BuildMode.release,
+              null,
+              treeShakeIcons: false,
+            ),
+          ),
+          target: 'lib/main.dart',
+          isBuildingBundle: false,
+          localGradleErrors: const <GradleHandledError>[],
+        );
+      }, throwsToolExit());
+
+      final List<String> actualGradlewCall = verify(
+        mockProcessManager.start(
+            captureAny,
+            environment: anyNamed('environment'),
+            workingDirectory: anyNamed('workingDirectory')
+        ),
+      ).captured.last as List<String>;
+
+      expect(actualGradlewCall, contains('/android/gradlew'));
+      expect(actualGradlewCall, contains('-Plocal-engine-out=out/android_x86'));
+      expect(actualGradlewCall, contains('-Plocal-engine-repo=/.tmp_rand0/flutter_tool_local_engine_repo.rand0'));
+      expect(actualGradlewCall, contains('-Plocal-engine-build-mode=release'));
+
+    }, overrides: <Type, Generator>{
+      AndroidSdk: () => mockAndroidSdk,
+      AndroidStudio: () => mockAndroidStudio,
+      Artifacts: () => mockArtifacts,
+      Cache: () => cache,
+      Platform: () => android,
+      FileSystem: () => fileSystem,
+      ProcessManager: () => mockProcessManager,
+    });
+
+    testUsingContext(
+        'build apk uses selected local engine,the engine abi is x64', () async {
+      when(mockArtifacts.getArtifactPath(
+        Artifact.flutterFramework,
+        platform: anyNamed('platform'),
+        mode: anyNamed('mode'),
+        environmentType: anyNamed('environmentType'),
+      )).thenReturn('engine');
+      when(mockArtifacts.engineOutPath).thenReturn(fileSystem.path.join('out', 'android_x64'));
+
+      fileSystem.file('out/android_x64/flutter_embedding_release.pom')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <version>1.0.0-73fd6b049a80bcea2db1f26c7cee434907cd188b</version>
+  <dependencies>
+  </dependencies>
+</project>
+''');
+      fileSystem.file('out/android_x64/x86_64_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_x64/x86_64_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_x64/x86_64_release.maven-metadata.xml').createSync(recursive: true);
+      fileSystem.file('out/android_x64/flutter_embedding_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_x64/flutter_embedding_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_x64/flutter_embedding_release.maven-metadata.xml').createSync(recursive: true);
+
+      fileSystem.file('android/gradlew').createSync(recursive: true);
+
+      fileSystem.directory('android')
+          .childFile('gradle.properties')
+          .createSync(recursive: true);
+
+      fileSystem.file('android/build.gradle')
+          .createSync(recursive: true);
+
+      fileSystem.directory('android')
+          .childDirectory('app')
+          .childFile('build.gradle')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('apply from: irrelevant/flutter.gradle');
+
+      // Let any process start. Assert after.
+      when(mockProcessManager.run(
+        any,
+        environment: anyNamed('environment'),
+        workingDirectory: anyNamed('workingDirectory'),
+      )).thenAnswer((_) async => ProcessResult(1, 0, '', ''));
+
+      when(mockProcessManager.start(any,
+          workingDirectory: anyNamed('workingDirectory'),
+          environment: anyNamed('environment')))
+          .thenAnswer((_) {
+        return Future<Process>.value(
+            createMockProcess(
+              exitCode: 1,
+            )
+        );
+      });
+
+      await expectLater(() async {
+        await buildGradleApp(
+          project: FlutterProject.current(),
+          androidBuildInfo: const AndroidBuildInfo(
+            BuildInfo(
+              BuildMode.release,
+              null,
+              treeShakeIcons: false,
+            ),
+          ),
+          target: 'lib/main.dart',
+          isBuildingBundle: false,
+          localGradleErrors: const <GradleHandledError>[],
+        );
+      }, throwsToolExit());
+
+      final List<String> actualGradlewCall = verify(
+        mockProcessManager.start(
+            captureAny,
+            environment: anyNamed('environment'),
+            workingDirectory: anyNamed('workingDirectory')
+        ),
+      ).captured.last as List<String>;
+
+      expect(actualGradlewCall, contains('/android/gradlew'));
+      expect(actualGradlewCall, contains('-Plocal-engine-out=out/android_x64'));
+      expect(actualGradlewCall, contains('-Plocal-engine-repo=/.tmp_rand0/flutter_tool_local_engine_repo.rand0'));
+      expect(actualGradlewCall, contains('-Plocal-engine-build-mode=release'));
+
+    }, overrides: <Type, Generator>{
+      AndroidSdk: () => mockAndroidSdk,
+      AndroidStudio: () => mockAndroidStudio,
+      Artifacts: () => mockArtifacts,
+      Cache: () => cache,
+      Platform: () => android,
+      FileSystem: () => fileSystem,
+      ProcessManager: () => mockProcessManager,
+    });
+
+    testUsingContext('honors --no-android-gradle-daemon setting', () async {
+      (globals.processManager as FakeProcessManager).addCommand(
+        const FakeCommand(command: <String>[
+          '/android/gradlew',
+          '-q',
+          '--no-daemon',
+          '-Ptarget-platform=android-arm,android-arm64,android-x64',
+          '-Ptarget=lib/main.dart',
+          '-Ptrack-widget-creation=false',
+          'assembleRelease'
+        ],
+      ));
+      fileSystem.file('android/gradlew').createSync(recursive: true);
+
+      fileSystem.directory('android')
+          .childFile('gradle.properties')
+          .createSync(recursive: true);
+
+      fileSystem.file('android/build.gradle')
+          .createSync(recursive: true);
+
+      fileSystem.directory('android')
+          .childDirectory('app')
+          .childFile('build.gradle')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('apply from: irrelevant/flutter.gradle');
+
+      await expectLater(() async {
+        await buildGradleApp(
+          project: FlutterProject.current(),
+          androidBuildInfo: const AndroidBuildInfo(
+            BuildInfo(
+              BuildMode.release,
+              null,
+              treeShakeIcons: false,
+              androidGradleDaemon: false,
+            ),
+          ),
+          target: 'lib/main.dart',
+          isBuildingBundle: false,
+          localGradleErrors: const <GradleHandledError>[],
+        );
+      }, throwsToolExit());
+    }, overrides: <Type, Generator>{
+      AndroidSdk: () => mockAndroidSdk,
+      AndroidStudio: () => mockAndroidStudio,
+      Artifacts: () => Artifacts.test(),
+      Cache: () => cache,
+      Platform: () => android,
+      FileSystem: () => fileSystem,
+      ProcessManager: () => FakeProcessManager.list(<FakeCommand>[]),
+    });
+
+    testUsingContext('build aar uses selected local engine，the engine abi is arm', () async {
+      when(mockArtifacts.getArtifactPath(
+        Artifact.flutterFramework,
+        platform: TargetPlatform.android_arm,
+        mode: anyNamed('mode'),
+        environmentType: anyNamed('environmentType'),
+      )).thenReturn('engine');
       when(mockArtifacts.engineOutPath).thenReturn(fileSystem.path.join('out', 'android_arm'));
 
       fileSystem.file('out/android_arm/flutter_embedding_release.pom')
         ..createSync(recursive: true)
-        ..writeAsStringSync(
-'''<?xml version="1.0" encoding="UTF-8"?>
+        ..writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
 <project>
   <version>1.0.0-73fd6b049a80bcea2db1f26c7cee434907cd188b</version>
   <dependencies>
@@ -1761,8 +2161,10 @@ plugin1=${plugin1.path}
 ''');
       fileSystem.file('out/android_arm/armeabi_v7a_release.pom').createSync(recursive: true);
       fileSystem.file('out/android_arm/armeabi_v7a_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_arm/armeabi_v7a_release.maven-metadata.xml').createSync(recursive: true);
       fileSystem.file('out/android_arm/flutter_embedding_release.jar').createSync(recursive: true);
       fileSystem.file('out/android_arm/flutter_embedding_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_arm/flutter_embedding_release.maven-metadata.xml').createSync(recursive: true);
 
       final File manifestFile = fileSystem.file('pubspec.yaml');
       manifestFile.createSync(recursive: true);
@@ -1772,6 +2174,12 @@ plugin1=${plugin1.path}
             androidPackage: com.example.test
         '''
       );
+
+      fileSystem.directory('.android/gradle')
+        .createSync(recursive: true);
+
+      fileSystem.directory('.android/gradle/wrapper')
+        .createSync(recursive: true);
 
       fileSystem.file('.android/gradlew').createSync(recursive: true);
 
@@ -1790,8 +2198,10 @@ plugin1=${plugin1.path}
 
       fileSystem.directory('build/outputs/repo').createSync(recursive: true);
 
+      when(fileSystemUtils.copyDirectorySync(any, any)).thenReturn(null);
+
       await buildGradleAar(
-        androidBuildInfo: const AndroidBuildInfo(BuildInfo(BuildMode.release, null)),
+        androidBuildInfo: const AndroidBuildInfo(BuildInfo(BuildMode.release, null, treeShakeIcons: false)),
         project: FlutterProject.current(),
         outputDirectory: fileSystem.directory('build/'),
         target: '',
@@ -1812,6 +2222,15 @@ plugin1=${plugin1.path}
       expect(actualGradlewCall, contains('-Plocal-engine-build-mode=release'));
       expect(actualGradlewCall, contains('-PbuildNumber=2.0'));
 
+      // Verify the local engine repo is copied into the generated Maven repo.
+      final List<dynamic> copyDirectoryArguments = verify(
+        fileSystemUtils.copyDirectorySync(captureAny, captureAny)
+      ).captured;
+
+      expect(copyDirectoryArguments.length, 2);
+      expect((copyDirectoryArguments.first as Directory).path, '/.tmp_rand0/flutter_tool_local_engine_repo.rand0');
+      expect((copyDirectoryArguments.last as Directory).path, 'build/outputs/repo');
+
     }, overrides: <Type, Generator>{
       AndroidSdk: () => mockAndroidSdk,
       AndroidStudio: () => mockAndroidStudio,
@@ -1819,42 +2238,366 @@ plugin1=${plugin1.path}
       Cache: () => cache,
       Platform: () => android,
       FileSystem: () => fileSystem,
+      FileSystemUtils: () => fileSystemUtils,
+      ProcessManager: () => mockProcessManager,
+    });
+
+    testUsingContext(
+        'build aar uses selected local engine，the engine abi is arm64', () async {
+      when(mockArtifacts.getArtifactPath(
+        Artifact.flutterFramework,
+        platform: anyNamed('platform'),
+        mode: anyNamed('mode'),
+        environmentType: anyNamed('environmentType'),
+      )).thenReturn('engine');
+      when(mockArtifacts.engineOutPath).thenReturn(fileSystem.path.join('out', 'android_arm64'));
+
+      fileSystem.file('out/android_arm64/flutter_embedding_release.pom')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <version>1.0.0-73fd6b049a80bcea2db1f26c7cee434907cd188b</version>
+  <dependencies>
+  </dependencies>
+</project>
+''');
+      fileSystem.file('out/android_arm64/arm64_v8a_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_arm64/arm64_v8a_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_arm64/arm64_v8a_release.maven-metadata.xml').createSync(recursive: true);
+      fileSystem.file('out/android_arm64/flutter_embedding_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_arm64/flutter_embedding_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_arm64/flutter_embedding_release.maven-metadata.xml').createSync(recursive: true);
+
+      final File manifestFile = fileSystem.file('pubspec.yaml');
+      manifestFile.createSync(recursive: true);
+      manifestFile.writeAsStringSync('''
+        flutter:
+          module:
+            androidPackage: com.example.test
+        '''
+      );
+
+      fileSystem.directory('.android/gradle')
+          .createSync(recursive: true);
+
+      fileSystem.directory('.android/gradle/wrapper')
+          .createSync(recursive: true);
+
+      fileSystem.file('.android/gradlew').createSync(recursive: true);
+
+      fileSystem.file('.android/gradle.properties')
+          .writeAsStringSync('irrelevant');
+
+      fileSystem.file('.android/build.gradle')
+          .createSync(recursive: true);
+
+      // Let any process start. Assert after.
+      when(mockProcessManager.run(
+        any,
+        environment: anyNamed('environment'),
+        workingDirectory: anyNamed('workingDirectory'),
+      )).thenAnswer((_) async => ProcessResult(1, 0, '', ''));
+
+      fileSystem.directory('build/outputs/repo').createSync(recursive: true);
+
+      when(fileSystemUtils.copyDirectorySync(any, any)).thenReturn(null);
+
+      await buildGradleAar(
+        androidBuildInfo: const AndroidBuildInfo(
+            BuildInfo(BuildMode.release, null, treeShakeIcons: false)),
+        project: FlutterProject.current(),
+        outputDirectory: fileSystem.directory('build/'),
+        target: '',
+        buildNumber: '2.0',
+      );
+
+      final List<String> actualGradlewCall = verify(
+        mockProcessManager.run(
+          captureAny,
+          environment: anyNamed('environment'),
+          workingDirectory: anyNamed('workingDirectory'),
+        ),
+      ).captured.last as List<String>;
+
+      expect(actualGradlewCall, contains('/.android/gradlew'));
+      expect(actualGradlewCall, contains('-Plocal-engine-out=out/android_arm64'));
+      expect(actualGradlewCall, contains('-Plocal-engine-repo=/.tmp_rand0/flutter_tool_local_engine_repo.rand0'));
+      expect(actualGradlewCall, contains('-Plocal-engine-build-mode=release'));
+      expect(actualGradlewCall, contains('-PbuildNumber=2.0'));
+
+      // Verify the local engine repo is copied into the generated Maven repo.
+      final List<dynamic> copyDirectoryArguments = verify(
+          fileSystemUtils.copyDirectorySync(captureAny, captureAny)
+      ).captured;
+
+      expect(copyDirectoryArguments.length, 2);
+      expect((copyDirectoryArguments.first as Directory).path, '/.tmp_rand0/flutter_tool_local_engine_repo.rand0');
+      expect((copyDirectoryArguments.last as Directory).path, 'build/outputs/repo');
+
+    }, overrides: <Type, Generator>{
+      AndroidSdk: () => mockAndroidSdk,
+      AndroidStudio: () => mockAndroidStudio,
+      Artifacts: () => mockArtifacts,
+      Cache: () => cache,
+      Platform: () => android,
+      FileSystem: () => fileSystem,
+      FileSystemUtils: () => fileSystemUtils,
+      ProcessManager: () => mockProcessManager,
+    });
+
+    testUsingContext(
+        'build aar uses selected local engine，the engine abi is x86', () async {
+      when(mockArtifacts.getArtifactPath(
+        Artifact.flutterFramework,
+        platform: anyNamed('platform'),
+        mode: anyNamed('mode'),
+        environmentType: anyNamed('environmentType'),
+      )).thenReturn('engine');
+      when(mockArtifacts.engineOutPath).thenReturn(fileSystem.path.join('out', 'android_x86'));
+
+      fileSystem.file('out/android_x86/flutter_embedding_release.pom')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <version>1.0.0-73fd6b049a80bcea2db1f26c7cee434907cd188b</version>
+  <dependencies>
+  </dependencies>
+</project>
+''');
+      fileSystem.file('out/android_x86/x86_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_x86/x86_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_x86/x86_release.maven-metadata.xml').createSync(recursive: true);
+      fileSystem.file('out/android_x86/flutter_embedding_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_x86/flutter_embedding_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_x86/flutter_embedding_release.maven-metadata.xml').createSync(recursive: true);
+
+      final File manifestFile = fileSystem.file('pubspec.yaml');
+      manifestFile.createSync(recursive: true);
+      manifestFile.writeAsStringSync('''
+        flutter:
+          module:
+            androidPackage: com.example.test
+        '''
+      );
+
+      fileSystem.directory('.android/gradle')
+          .createSync(recursive: true);
+
+      fileSystem.directory('.android/gradle/wrapper')
+          .createSync(recursive: true);
+
+      fileSystem.file('.android/gradlew').createSync(recursive: true);
+
+      fileSystem.file('.android/gradle.properties')
+          .writeAsStringSync('irrelevant');
+
+      fileSystem.file('.android/build.gradle')
+          .createSync(recursive: true);
+
+      // Let any process start. Assert after.
+      when(mockProcessManager.run(
+        any,
+        environment: anyNamed('environment'),
+        workingDirectory: anyNamed('workingDirectory'),
+      )).thenAnswer((_) async => ProcessResult(1, 0, '', ''));
+
+      fileSystem.directory('build/outputs/repo').createSync(recursive: true);
+
+      when(fileSystemUtils.copyDirectorySync(any, any)).thenReturn(null);
+
+      await buildGradleAar(
+        androidBuildInfo: const AndroidBuildInfo(
+            BuildInfo(BuildMode.release, null, treeShakeIcons: false)),
+        project: FlutterProject.current(),
+        outputDirectory: fileSystem.directory('build/'),
+        target: '',
+        buildNumber: '2.0',
+      );
+
+      final List<String> actualGradlewCall = verify(
+        mockProcessManager.run(
+          captureAny,
+          environment: anyNamed('environment'),
+          workingDirectory: anyNamed('workingDirectory'),
+        ),
+      ).captured.last as List<String>;
+
+      expect(actualGradlewCall, contains('/.android/gradlew'));
+      expect(actualGradlewCall, contains('-Plocal-engine-out=out/android_x86'));
+      expect(actualGradlewCall, contains('-Plocal-engine-repo=/.tmp_rand0/flutter_tool_local_engine_repo.rand0'));
+      expect(actualGradlewCall, contains('-Plocal-engine-build-mode=release'));
+      expect(actualGradlewCall, contains('-PbuildNumber=2.0'));
+
+      // Verify the local engine repo is copied into the generated Maven repo.
+      final List<dynamic> copyDirectoryArguments = verify(
+          fileSystemUtils.copyDirectorySync(captureAny, captureAny)
+      ).captured;
+
+      expect(copyDirectoryArguments.length, 2);
+      expect((copyDirectoryArguments.first as Directory).path, '/.tmp_rand0/flutter_tool_local_engine_repo.rand0');
+      expect((copyDirectoryArguments.last as Directory).path, 'build/outputs/repo');
+
+    }, overrides: <Type, Generator>{
+      AndroidSdk: () => mockAndroidSdk,
+      AndroidStudio: () => mockAndroidStudio,
+      Artifacts: () => mockArtifacts,
+      Cache: () => cache,
+      Platform: () => android,
+      FileSystem: () => fileSystem,
+      FileSystemUtils: () => fileSystemUtils,
+      ProcessManager: () => mockProcessManager,
+    });
+
+    testUsingContext(
+        'build aar uses selected local engine，the engine abi is x64', () async {
+      when(mockArtifacts.getArtifactPath(
+        Artifact.flutterFramework,
+        platform: anyNamed('platform'),
+        mode: anyNamed('mode'),
+        environmentType: anyNamed('environmentType'),
+      )).thenReturn('engine');
+      when(mockArtifacts.engineOutPath).thenReturn(fileSystem.path.join('out', 'android_x64'));
+
+      fileSystem.file('out/android_x64/flutter_embedding_release.pom')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <version>1.0.0-73fd6b049a80bcea2db1f26c7cee434907cd188b</version>
+  <dependencies>
+  </dependencies>
+</project>
+''');
+      fileSystem.file('out/android_x64/x86_64_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_x64/x86_64_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_x64/x86_64_release.maven-metadata.xml').createSync(recursive: true);
+      fileSystem.file('out/android_x64/flutter_embedding_release.jar').createSync(recursive: true);
+      fileSystem.file('out/android_x64/flutter_embedding_release.pom').createSync(recursive: true);
+      fileSystem.file('out/android_x64/flutter_embedding_release.maven-metadata.xml').createSync(recursive: true);
+
+      final File manifestFile = fileSystem.file('pubspec.yaml');
+      manifestFile.createSync(recursive: true);
+      manifestFile.writeAsStringSync('''
+        flutter:
+          module:
+            androidPackage: com.example.test
+        '''
+      );
+
+      fileSystem.directory('.android/gradle')
+          .createSync(recursive: true);
+
+      fileSystem.directory('.android/gradle/wrapper')
+          .createSync(recursive: true);
+
+      fileSystem.file('.android/gradlew').createSync(recursive: true);
+
+      fileSystem.file('.android/gradle.properties')
+          .writeAsStringSync('irrelevant');
+
+      fileSystem.file('.android/build.gradle')
+          .createSync(recursive: true);
+
+      // Let any process start. Assert after.
+      when(mockProcessManager.run(
+        any,
+        environment: anyNamed('environment'),
+        workingDirectory: anyNamed('workingDirectory'),
+      )).thenAnswer((_) async => ProcessResult(1, 0, '', ''));
+
+      fileSystem.directory('build/outputs/repo').createSync(recursive: true);
+
+      when(fileSystemUtils.copyDirectorySync(any, any)).thenReturn(null);
+
+      await buildGradleAar(
+        androidBuildInfo: const AndroidBuildInfo(
+            BuildInfo(BuildMode.release, null, treeShakeIcons: false)),
+        project: FlutterProject.current(),
+        outputDirectory: fileSystem.directory('build/'),
+        target: '',
+        buildNumber: '2.0',
+      );
+
+      final List<String> actualGradlewCall = verify(
+        mockProcessManager.run(
+          captureAny,
+          environment: anyNamed('environment'),
+          workingDirectory: anyNamed('workingDirectory'),
+        ),
+      ).captured.last as List<String>;
+
+      expect(actualGradlewCall, contains('/.android/gradlew'));
+      expect(actualGradlewCall, contains('-Plocal-engine-out=out/android_x64'));
+      expect(actualGradlewCall, contains('-Plocal-engine-repo=/.tmp_rand0/flutter_tool_local_engine_repo.rand0'));
+      expect(actualGradlewCall, contains('-Plocal-engine-build-mode=release'));
+      expect(actualGradlewCall, contains('-PbuildNumber=2.0'));
+
+      // Verify the local engine repo is copied into the generated Maven repo.
+      final List<dynamic> copyDirectoryArguments = verify(
+          fileSystemUtils.copyDirectorySync(captureAny, captureAny)
+      ).captured;
+
+      expect(copyDirectoryArguments.length, 2);
+      expect((copyDirectoryArguments.first as Directory).path, '/.tmp_rand0/flutter_tool_local_engine_repo.rand0');
+      expect((copyDirectoryArguments.last as Directory).path, 'build/outputs/repo');
+
+    }, overrides: <Type, Generator>{
+      AndroidSdk: () => mockAndroidSdk,
+      AndroidStudio: () => mockAndroidStudio,
+      Artifacts: () => mockArtifacts,
+      Cache: () => cache,
+      Platform: () => android,
+      FileSystem: () => fileSystem,
+      FileSystemUtils: () => fileSystemUtils,
       ProcessManager: () => mockProcessManager,
     });
   });
 
   group('printHowToConsumeAar', () {
-    testUsingContext('stdout contains release, debug and profile', () async {
+    BufferLogger logger;
+    FileSystem fileSystem;
+
+    setUp(() {
+      logger = BufferLogger.test();
+      fileSystem = MemoryFileSystem.test();
+    });
+
+    testWithoutContext('stdout contains release, debug and profile', () async {
       printHowToConsumeAar(
         buildModes: const <String>{'release', 'debug', 'profile'},
         androidPackage: 'com.mycompany',
-        repoDirectory: globals.fs.directory('build/'),
+        repoDirectory: fileSystem.directory('build/'),
         buildNumber: '2.2',
+        logger: logger,
+        fileSystem: fileSystem,
       );
 
       expect(
-        testLogger.statusText,
+        logger.statusText,
         contains(
           '\n'
           'Consuming the Module\n'
           '  1. Open <host>/app/build.gradle\n'
           '  2. Ensure you have the repositories configured, otherwise add them:\n'
           '\n'
+          '      String storageUrl = System.env.FLUTTER_STORAGE_BASE_URL ?: "https://storage.googleapis.com"\n'
           '      repositories {\n'
           '        maven {\n'
-          '            url \'build/\'\n'
+          "            url 'build/'\n"
           '        }\n'
           '        maven {\n'
-          '            url \'http://download.flutter.io\'\n'
+          "            url '\$storageUrl/download.flutter.io'\n"
           '        }\n'
           '      }\n'
           '\n'
           '  3. Make the host app depend on the Flutter module:\n'
           '\n'
           '    dependencies {\n'
-          '      releaseImplementation \'com.mycompany:flutter_release:2.2\n'
-          '      debugImplementation \'com.mycompany:flutter_debug:2.2\n'
-          '      profileImplementation \'com.mycompany:flutter_profile:2.2\n'
+          "      releaseImplementation 'com.mycompany:flutter_release:2.2'\n"
+          "      debugImplementation 'com.mycompany:flutter_debug:2.2'\n"
+          "      profileImplementation 'com.mycompany:flutter_profile:2.2'\n"
           '    }\n'
           '\n'
           '\n'
@@ -1871,119 +2614,116 @@ plugin1=${plugin1.path}
           'To learn more, visit https://flutter.dev/go/build-aar\n'
         )
       );
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      Platform: () => fakePlatform('android'),
-      ProcessManager: () => FakeProcessManager.any(),
     });
 
-    testUsingContext('stdout contains release', () async {
+    testWithoutContext('stdout contains release', () async {
       printHowToConsumeAar(
         buildModes: const <String>{'release'},
         androidPackage: 'com.mycompany',
-        repoDirectory: globals.fs.directory('build/'),
+        repoDirectory: fileSystem.directory('build/'),
+        logger: logger,
+        fileSystem: fileSystem,
       );
 
       expect(
-        testLogger.statusText,
+        logger.statusText,
         contains(
           '\n'
           'Consuming the Module\n'
           '  1. Open <host>/app/build.gradle\n'
           '  2. Ensure you have the repositories configured, otherwise add them:\n'
           '\n'
+          '      String storageUrl = System.env.FLUTTER_STORAGE_BASE_URL ?: "https://storage.googleapis.com"\n'
           '      repositories {\n'
           '        maven {\n'
-          '            url \'build/\'\n'
+          "            url 'build/'\n"
           '        }\n'
           '        maven {\n'
-          '            url \'http://download.flutter.io\'\n'
+          "            url '\$storageUrl/download.flutter.io'\n"
           '        }\n'
           '      }\n'
           '\n'
           '  3. Make the host app depend on the Flutter module:\n'
           '\n'
           '    dependencies {\n'
-          '      releaseImplementation \'com.mycompany:flutter_release:1.0\n'
+          "      releaseImplementation 'com.mycompany:flutter_release:1.0'\n"
           '    }\n'
           '\n'
           'To learn more, visit https://flutter.dev/go/build-aar\n'
         )
       );
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      Platform: () => fakePlatform('android'),
-      ProcessManager: () => FakeProcessManager.any(),
     });
 
-    testUsingContext('stdout contains debug', () async {
+    testWithoutContext('stdout contains debug', () async {
       printHowToConsumeAar(
         buildModes: const <String>{'debug'},
         androidPackage: 'com.mycompany',
-        repoDirectory: globals.fs.directory('build/'),
+        repoDirectory: fileSystem.directory('build/'),
+        logger: logger,
+        fileSystem: fileSystem,
       );
 
       expect(
-        testLogger.statusText,
+        logger.statusText,
         contains(
           '\n'
           'Consuming the Module\n'
           '  1. Open <host>/app/build.gradle\n'
           '  2. Ensure you have the repositories configured, otherwise add them:\n'
           '\n'
+          '      String storageUrl = System.env.FLUTTER_STORAGE_BASE_URL ?: "https://storage.googleapis.com"\n'
           '      repositories {\n'
           '        maven {\n'
-          '            url \'build/\'\n'
+          "            url 'build/'\n"
           '        }\n'
           '        maven {\n'
-          '            url \'http://download.flutter.io\'\n'
+          "            url '\$storageUrl/download.flutter.io'\n"
           '        }\n'
           '      }\n'
           '\n'
           '  3. Make the host app depend on the Flutter module:\n'
           '\n'
           '    dependencies {\n'
-          '      debugImplementation \'com.mycompany:flutter_debug:1.0\n'
+          "      debugImplementation 'com.mycompany:flutter_debug:1.0'\n"
           '    }\n'
           '\n'
           'To learn more, visit https://flutter.dev/go/build-aar\n'
         )
       );
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      Platform: () => fakePlatform('android'),
-      ProcessManager: () => FakeProcessManager.any(),
     });
 
-    testUsingContext('stdout contains profile', () async {
+    testWithoutContext('stdout contains profile', () async {
       printHowToConsumeAar(
         buildModes: const <String>{'profile'},
         androidPackage: 'com.mycompany',
-        repoDirectory: globals.fs.directory('build/'),
+        repoDirectory: fileSystem.directory('build/'),
         buildNumber: '1.0',
+        logger: logger,
+        fileSystem: fileSystem,
       );
 
       expect(
-        testLogger.statusText,
+        logger.statusText,
         contains(
           '\n'
           'Consuming the Module\n'
           '  1. Open <host>/app/build.gradle\n'
           '  2. Ensure you have the repositories configured, otherwise add them:\n'
           '\n'
+          '      String storageUrl = System.env.FLUTTER_STORAGE_BASE_URL ?: "https://storage.googleapis.com"\n'
           '      repositories {\n'
           '        maven {\n'
-          '            url \'build/\'\n'
+          "            url 'build/'\n"
           '        }\n'
           '        maven {\n'
-          '            url \'http://download.flutter.io\'\n'
+          "            url '\$storageUrl/download.flutter.io'\n"
           '        }\n'
           '      }\n'
           '\n'
           '  3. Make the host app depend on the Flutter module:\n'
           '\n'
           '    dependencies {\n'
-          '      profileImplementation \'com.mycompany:flutter_profile:1.0\n'
+          "      profileImplementation 'com.mycompany:flutter_profile:1.0'\n"
           '    }\n'
           '\n'
           '\n'
@@ -2000,27 +2740,35 @@ plugin1=${plugin1.path}
           'To learn more, visit https://flutter.dev/go/build-aar\n'
         )
       );
-    }, overrides: <Type, Generator>{
-      FileSystem: () => MemoryFileSystem(),
-      Platform: () => fakePlatform('android'),
-      ProcessManager: () => FakeProcessManager.any(),
     });
   });
+
+  test('Current settings.gradle is in our legacy settings.gradle file set', () {
+    // If this test fails, you probably edited templates/app/android.tmpl.
+    // That's fine, but you now need to add a copy of that file to gradle/settings.gradle.legacy_versions, separated
+    // from the previous versions by a line that just says ";EOF".
+    final File templateSettingsDotGradle = globals.fs.file(globals.fs.path.join(Cache.flutterRoot, 'packages', 'flutter_tools', 'templates', 'app', 'android.tmpl', 'settings.gradle'));
+    final File legacySettingsDotGradleFiles = globals.fs.file(globals.fs.path.join(Cache.flutterRoot, 'packages','flutter_tools', 'gradle', 'settings.gradle.legacy_versions'));
+    expect(
+      legacySettingsDotGradleFiles.readAsStringSync().split(';EOF').map<String>((String body) => body.trim()),
+      contains(templateSettingsDotGradle.readAsStringSync().trim()),
+    );
+  }, skip: true); // TODO(jonahwilliams): This is an integration test and should be moved to the integration shard.
 }
 
 /// Generates a fake app bundle at the location [directoryName]/[fileName].
-FlutterProject generateFakeAppBundle(String directoryName, String fileName) {
+FlutterProject generateFakeAppBundle(String directoryName, String fileName, FileSystem fileSystem) {
   final FlutterProject project = MockFlutterProject();
   final AndroidProject androidProject = MockAndroidProject();
 
   when(project.isModule).thenReturn(false);
   when(project.android).thenReturn(androidProject);
-  when(androidProject.buildDirectory).thenReturn(globals.fs.directory('irrelevant'));
+  when(androidProject.buildDirectory).thenReturn(fileSystem.directory('irrelevant'));
 
   final Directory bundleDirectory = getBundleDirectory(project);
   bundleDirectory
     .childDirectory(directoryName)
-    ..createSync(recursive: true);
+    .createSync(recursive: true);
 
   bundleDirectory
     .childDirectory(directoryName)
@@ -2030,9 +2778,11 @@ FlutterProject generateFakeAppBundle(String directoryName, String fileName) {
 }
 
 FakePlatform fakePlatform(String name) {
-  return FakePlatform.fromPlatform(const LocalPlatform())
-    ..operatingSystem = name
-    ..stdoutSupportsAnsi = false;
+  return FakePlatform(
+    environment: <String, String>{'HOME': '/path/to/home'},
+    operatingSystem: name,
+    stdoutSupportsAnsi: false,
+  );
 }
 
 class FakeGradleUtils extends GradleUtils {
@@ -2047,9 +2797,9 @@ class MockAndroidProject extends Mock implements AndroidProject {}
 class MockAndroidStudio extends Mock implements AndroidStudio {}
 class MockDirectory extends Mock implements Directory {}
 class MockFile extends Mock implements File {}
+class MockFileSystemUtils extends Mock implements FileSystemUtils {}
 class MockFlutterProject extends Mock implements FlutterProject {}
 class MockLocalEngineArtifacts extends Mock implements LocalEngineArtifacts {}
 class MockProcessManager extends Mock implements ProcessManager {}
 class MockXcodeProjectInterpreter extends Mock implements XcodeProjectInterpreter {}
-class MockitoAndroidSdk extends Mock implements AndroidSdk {}
 class MockUsage extends Mock implements Usage {}

@@ -58,11 +58,11 @@ void main() {
       final NavigatorState navigator = tester.state(find.byType(Navigator));
       final List<String> log = <String>[];
       observer
-        ..onPushed = (Route<dynamic> route, Route<dynamic> previousRoute) {
-          log.add('${route.settings.name} pushed, previous route: ${previousRoute.settings.name}');
+        ..onPushed = (Route<dynamic>? route, Route<dynamic>? previousRoute) {
+          log.add('${route!.settings.name} pushed, previous route: ${previousRoute!.settings.name}');
         }
-        ..onRemoved = (Route<dynamic> route, Route<dynamic> previousRoute) {
-          log.add('${route.settings.name} removed, previous route: ${previousRoute?.settings?.name}');
+        ..onRemoved = (Route<dynamic>? route, Route<dynamic>? previousRoute) {
+          log.add('${route!.settings.name} removed, previous route: ${previousRoute?.settings.name}');
         };
 
 
@@ -187,6 +187,13 @@ void main() {
     testWidgets('Hero transition does not trigger when preceding route does not contain hero, but predicate route does', (WidgetTester tester) async {
       const String kHeroTag = 'hero';
       final Widget myApp = MaterialApp(
+        theme: ThemeData(
+          pageTransitionsTheme: const PageTransitionsTheme(
+            builders: <TargetPlatform, PageTransitionsBuilder>{
+              TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+            },
+          ),
+        ),
         initialRoute: '/',
         routes: <String, WidgetBuilder>{
           '/': (BuildContext context) => const Material(child: Hero(

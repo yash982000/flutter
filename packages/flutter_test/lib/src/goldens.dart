@@ -2,11 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as path;
 import '_goldens_io.dart' if (dart.library.html) '_goldens_web.dart' as _goldens;
 
@@ -83,7 +80,7 @@ abstract class GoldenFileComparator {
   ///
   /// Version numbers are used in golden file tests for package:flutter. You can
   /// learn more about these tests [here](https://github.com/flutter/flutter/wiki/Writing-a-golden-file-test-for-package:flutter).
-  Uri getTestUri(Uri key, int version) {
+  Uri getTestUri(Uri key, int? version) {
     if (version == null)
       return key;
     final String keyString = key.toString();
@@ -97,7 +94,7 @@ abstract class GoldenFileComparator {
 
   /// Returns a [ComparisonResult] to describe the pixel differential of the
   /// [test] and [master] image bytes provided.
-  static ComparisonResult compareLists(List<int> test, List<int> master) {
+  static Future<ComparisonResult> compareLists(List<int> test, List<int> master) {
     return _goldens.compareLists(test, master);
   }
 }
@@ -131,7 +128,6 @@ abstract class GoldenFileComparator {
 GoldenFileComparator get goldenFileComparator => _goldenFileComparator;
 GoldenFileComparator _goldenFileComparator = const TrivialComparator._();
 set goldenFileComparator(GoldenFileComparator value) {
-  assert(value != null);
   _goldenFileComparator = value;
 }
 
@@ -158,7 +154,7 @@ set goldenFileComparator(GoldenFileComparator value) {
 ///  * [matchesGoldenFile], the function from [flutter_test] that invokes the
 ///    comparator.
 abstract class WebGoldenComparator {
-  /// Compares the rendered pixels of [element] of size [size] that is being
+  /// Compares the rendered pixels of size [width]x[height] that is being
   /// rendered on the top left of the screen against the golden file identified
   /// by [golden].
   ///
@@ -174,10 +170,10 @@ abstract class WebGoldenComparator {
   /// is left up to the implementation class. For instance, some implementations
   /// may load files from the local file system, whereas others may load files
   /// over the network or from a remote repository.
-  Future<bool> compare(Element element, Size size, Uri golden);
+  Future<bool> compare(double width, double height, Uri golden);
 
   /// Updates the golden file identified by [golden] with rendered pixels of
-  /// [element].
+  /// [width]x[height].
   ///
   /// This will be invoked in lieu of [compare] when [autoUpdateGoldenFiles]
   /// is `true` (which gets set automatically by the test framework when the
@@ -185,7 +181,7 @@ abstract class WebGoldenComparator {
   ///
   /// The method by which [golden] is located and by which its bytes are written
   /// is left up to the implementation class.
-  Future<void> update(Uri golden, Element element, Size size);
+  Future<void> update(double width, double height, Uri golden);
 
   /// Returns a new golden file [Uri] to incorporate any [version] number with
   /// the [key].
@@ -195,7 +191,7 @@ abstract class WebGoldenComparator {
   ///
   /// Version numbers are used in golden file tests for package:flutter. You can
   /// learn more about these tests [here](https://github.com/flutter/flutter/wiki/Writing-a-golden-file-test-for-package:flutter).
-  Uri getTestUri(Uri key, int version) {
+  Uri getTestUri(Uri key, int? version) {
     if (version == null)
       return key;
     final String keyString = key.toString();
@@ -222,7 +218,7 @@ abstract class WebGoldenComparator {
 /// updates the files on disk to match the rendering.
 ///
 /// When using `flutter run`, the default comparator
-/// ([_TrivialWebGoldenComparator]) is used. It prints a message to the console
+/// (`_TrivialWebGoldenComparator`) is used. It prints a message to the console
 /// but otherwise does nothing. This allows tests to be developed visually on a
 /// web browser.
 ///
@@ -240,7 +236,6 @@ abstract class WebGoldenComparator {
 WebGoldenComparator get webGoldenComparator => _webGoldenComparator;
 WebGoldenComparator _webGoldenComparator = const _TrivialWebGoldenComparator._();
 set webGoldenComparator(WebGoldenComparator value) {
-  assert(value != null);
   _webGoldenComparator = value;
 }
 
@@ -280,7 +275,7 @@ class TrivialComparator implements GoldenFileComparator {
 
   @override
   Future<bool> compare(Uint8List imageBytes, Uri golden) {
-    debugPrint('Golden file comparison requested for "$golden"; skipping...');
+    print('Golden file comparison requested for "$golden"; skipping...');
     return Future<bool>.value(true);
   }
 
@@ -290,7 +285,7 @@ class TrivialComparator implements GoldenFileComparator {
   }
 
   @override
-  Uri getTestUri(Uri key, int version) {
+  Uri getTestUri(Uri key, int? version) {
     return key;
   }
 }
@@ -299,18 +294,18 @@ class _TrivialWebGoldenComparator implements WebGoldenComparator {
   const _TrivialWebGoldenComparator._();
 
   @override
-  Future<bool> compare(Element element, Size size, Uri golden) {
-    debugPrint('Golden comparison requested for "$golden"; skipping...');
+  Future<bool> compare(double width, double height, Uri golden) {
+    print('Golden comparison requested for "$golden"; skipping...');
     return Future<bool>.value(true);
   }
 
   @override
-  Future<void> update(Uri golden, Element element, Size size) {
+  Future<void> update(double width, double height, Uri golden) {
     throw StateError('webGoldenComparator has not been initialized');
   }
 
   @override
-  Uri getTestUri(Uri key, int version) {
+  Uri getTestUri(Uri key, int? version) {
     return key;
   }
 }
@@ -323,10 +318,10 @@ class _TrivialWebGoldenComparator implements WebGoldenComparator {
 class ComparisonResult {
   /// Creates a new [ComparisonResult] for the current test.
   ComparisonResult({
-    @required this.passed,
+    required this.passed,
     this.error,
     this.diffs,
-  }) : assert(passed != null);
+  });
 
   /// Indicates whether or not a pixel comparison test has failed.
   ///
@@ -334,10 +329,10 @@ class ComparisonResult {
   final bool passed;
 
   /// Error message used to describe the cause of the pixel comparison failure.
-  final String error;
+  final String? error;
 
   /// Map containing differential images to illustrate found variants in pixel
   /// values in the execution of the pixel test.
   // TODO(jonahwilliams): fix type signature when image is updated to support web.
-  final Map<String, Object> diffs;
+  final Map<String, Object>? diffs;
 }

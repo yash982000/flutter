@@ -2,23 +2,53 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
 import 'package:args/args.dart';
+import 'package:meta/meta.dart';
+import 'package:process/process.dart';
 import 'package:yaml/yaml.dart' as yaml;
 
+import '../artifacts.dart';
 import '../base/common.dart';
 import '../base/file_system.dart';
+import '../base/logger.dart';
+import '../base/platform.dart';
+import '../base/terminal.dart';
 import '../base/utils.dart';
 import '../cache.dart';
+import '../dart/analysis.dart';
 import '../globals.dart' as globals;
 
 /// Common behavior for `flutter analyze` and `flutter analyze --watch`
 abstract class AnalyzeBase {
-  AnalyzeBase(this.argResults);
+  AnalyzeBase(this.argResults, {
+    @required this.repoRoots,
+    @required this.repoPackages,
+    @required this.fileSystem,
+    @required this.logger,
+    @required this.platform,
+    @required this.processManager,
+    @required this.terminal,
+    @required this.artifacts,
+  });
 
   /// The parsed argument results for execution.
   final ArgResults argResults;
+  @protected
+  final List<String> repoRoots;
+  @protected
+  final List<Directory> repoPackages;
+  @protected
+  final FileSystem fileSystem;
+  @protected
+  final Logger logger;
+  @protected
+  final ProcessManager processManager;
+  @protected
+  final Platform platform;
+  @protected
+  final Terminal terminal;
+  @protected
+  final Artifacts artifacts;
 
   /// Called by [AnalyzeCommand] to start the analysis process.
   Future<void> analyze();
@@ -26,15 +56,15 @@ abstract class AnalyzeBase {
   void dumpErrors(Iterable<String> errors) {
     if (argResults['write'] != null) {
       try {
-        final RandomAccessFile resultsFile = globals.fs.file(argResults['write']).openSync(mode: FileMode.write);
+        final RandomAccessFile resultsFile = fileSystem.file(argResults['write']).openSync(mode: FileMode.write);
         try {
           resultsFile.lockSync();
           resultsFile.writeStringSync(errors.join('\n'));
         } finally {
           resultsFile.close();
         }
-      } catch (e) {
-        globals.printError('Failed to save output to "${argResults['write']}": $e');
+      } on Exception catch (e) {
+        logger.printError('Failed to save output to "${argResults['write']}": $e');
       }
     }
   }
@@ -46,28 +76,73 @@ abstract class AnalyzeBase {
       'issues': errorCount,
       'missingDartDocs': membersMissingDocumentation,
     };
-    globals.fs.file(benchmarkOut).writeAsStringSync(toPrettyJson(data));
-    globals.printStatus('Analysis benchmark written to $benchmarkOut ($data).');
+    fileSystem.file(benchmarkOut).writeAsStringSync(toPrettyJson(data));
+    logger.printStatus('Analysis benchmark written to $benchmarkOut ($data).');
   }
 
+  bool get isFlutterRepo => argResults['flutter-repo'] as bool;
+  String get sdkPath => argResults['dart-sdk'] as String ?? artifacts.getArtifactPath(Artifact.engineDartSdkPath);
   bool get isBenchmarking => argResults['benchmark'] as bool;
-}
+  bool get isDartDocs => argResults['dartdocs'] as bool;
 
-/// Return true if [fileList] contains a path that resides inside the Flutter repository.
-/// If [fileList] is empty, then return true if the current directory resides inside the Flutter repository.
-bool inRepo(List<String> fileList) {
-  if (fileList == null || fileList.isEmpty) {
-    fileList = <String>[globals.fs.path.current];
+  static int countMissingDartDocs(List<AnalysisError> errors) {
+    return errors.where((AnalysisError error) {
+      return error.code == 'public_member_api_docs';
+    }).length;
   }
-  final String root = globals.fs.path.normalize(globals.fs.path.absolute(Cache.flutterRoot));
-  final String prefix = root + globals.fs.path.separator;
-  for (String file in fileList) {
-    file = globals.fs.path.normalize(globals.fs.path.absolute(file));
-    if (file == root || file.startsWith(prefix)) {
-      return true;
+
+  static String generateDartDocMessage(int undocumentedMembers) {
+    String dartDocMessage;
+
+    assert(undocumentedMembers >= 0);
+    switch (undocumentedMembers) {
+      case 0:
+        dartDocMessage = 'all public member have documentation';
+        break;
+      case 1:
+        dartDocMessage = 'one public member lacks documentation';
+        break;
+      default:
+        dartDocMessage = '$undocumentedMembers public members lack documentation';
     }
+
+    return dartDocMessage;
   }
-  return false;
+
+  /// Generate an analysis summary for both [AnalyzeOnce], [AnalyzeContinuously].
+  static String generateErrorsMessage({
+    @required int issueCount,
+    int issueDiff,
+    int files,
+    @required String seconds,
+    int undocumentedMembers = 0,
+    String dartDocMessage = '',
+  }) {
+    final StringBuffer errorsMessage = StringBuffer(issueCount > 0
+      ? '$issueCount ${pluralize('issue', issueCount)} found.'
+      : 'No issues found!');
+
+    // Only [AnalyzeContinuously] has issueDiff message.
+    if (issueDiff != null) {
+      if (issueDiff > 0) {
+        errorsMessage.write(' ($issueDiff new)');
+      } else if (issueDiff < 0) {
+        errorsMessage.write(' (${-issueDiff} fixed)');
+      }
+    }
+
+    // Only [AnalyzeContinuously] has files message.
+    if (files != null) {
+      errorsMessage.write(' • analyzed $files ${pluralize('file', files)}');
+    }
+
+    if (undocumentedMembers > 0) {
+      errorsMessage.write(' (ran in ${seconds}s; $dartDocMessage)');
+    } else {
+      errorsMessage.write(' (ran in ${seconds}s)');
+    }
+    return errorsMessage.toString();
+  }
 }
 
 class PackageDependency {

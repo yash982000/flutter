@@ -25,7 +25,7 @@ void main() {
     expect(inner.debugLayer, null);
     expect(boundary.isRepaintBoundary, isTrue);
     expect(boundary.debugLayer, isNotNull);
-    expect(boundary.debugLayer.attached, isTrue); // this time it painted...
+    expect(boundary.debugLayer!.attached, isTrue); // this time it painted...
 
     root.opacity = 0.0;
     pumpFrame(phase: EnginePhase.paint);
@@ -33,7 +33,7 @@ void main() {
     expect(inner.debugLayer, null);
     expect(boundary.isRepaintBoundary, isTrue);
     expect(boundary.debugLayer, isNotNull);
-    expect(boundary.debugLayer.attached, isFalse); // this time it did not.
+    expect(boundary.debugLayer!.attached, isFalse); // this time it did not.
 
     root.opacity = 0.5;
     pumpFrame(phase: EnginePhase.paint);
@@ -41,7 +41,7 @@ void main() {
     expect(inner.debugLayer, null);
     expect(boundary.isRepaintBoundary, isTrue);
     expect(boundary.debugLayer, isNotNull);
-    expect(boundary.debugLayer.attached, isTrue); // this time it did again!
+    expect(boundary.debugLayer!.attached, isTrue); // this time it did again!
   });
 
   test('updateSubtreeNeedsAddToScene propagates Layer.alwaysNeedsAddToScene up the tree', () {
@@ -256,10 +256,26 @@ void main() {
     );
   });
 
+  test('PictureLayer prints picture, engine layer, and raster cache hints in debug info', () {
+    final PictureRecorder recorder = PictureRecorder();
+    final Canvas canvas = Canvas(recorder);
+    canvas.drawPaint(Paint());
+    final Picture picture = recorder.endRecording();
+    final PictureLayer layer = PictureLayer(const Rect.fromLTRB(0, 0, 1, 1));
+    layer.picture = picture;
+    layer.isComplexHint = true;
+    layer.willChangeHint = false;
+    final List<String> info = _getDebugInfo(layer);
+    expect(info, contains('picture: ${describeIdentity(picture)}'));
+    expect(info, contains('engine layer: ${describeIdentity(null)}'));
+    expect(info, contains('raster cache hints: isComplex = true, willChange = false'));
+  });
+
   test('mutating PictureLayer fields triggers needsAddToScene', () {
     final PictureLayer pictureLayer = PictureLayer(Rect.zero);
     checkNeedsAddToScene(pictureLayer, () {
       final PictureRecorder recorder = PictureRecorder();
+      Canvas(recorder);
       pictureLayer.picture = recorder.endRecording();
     });
 
@@ -392,7 +408,7 @@ void main() {
     void _testConflicts(
       PhysicalModelLayer layerA,
       PhysicalModelLayer layerB, {
-      @required int expectedErrorCount,
+      required int expectedErrorCount,
       bool enableCheck = true,
     }) {
       assert(expectedErrorCount != null);
@@ -433,7 +449,7 @@ void main() {
         shadowColor: const Color(0x00000000),
       );
       _testConflicts(layerA, layerB, expectedErrorCount: 1);
-    });
+    }, skip: isBrowser); // https://github.com/flutter/flutter/issues/44572
 
     // Tests:
     //
@@ -479,7 +495,7 @@ void main() {
         shadowColor: const Color(0x00000000),
       );
       _testConflicts(layerA, layerB, expectedErrorCount: 0);
-    });
+    }, skip: isBrowser); // https://github.com/flutter/flutter/issues/44572
 
     // Tests:
     //
@@ -511,7 +527,7 @@ void main() {
         shadowColor: const Color(0x00000000),
       );
       _testConflicts(layerA, layerB, expectedErrorCount: 0);
-    });
+    }, skip: isBrowser); // https://github.com/flutter/flutter/issues/44572
 
     // Tests:
     //
@@ -547,8 +563,8 @@ void main() {
       );
 
       _testConflicts(layerA, layerB, expectedErrorCount: 1);
-    });
-  }, skip: isBrowser);
+    }, skip: isBrowser); // https://github.com/flutter/flutter/issues/44572
+  });
 
   test('ContainerLayer.toImage can render interior layer', () {
     final OffsetLayer parent = OffsetLayer();

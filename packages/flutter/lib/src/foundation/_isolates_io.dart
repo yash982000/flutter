@@ -11,13 +11,12 @@ import 'constants.dart';
 import 'isolates.dart' as isolates;
 
 /// The dart:io implementation of [isolate.compute].
-Future<R> compute<Q, R>(isolates.ComputeCallback<Q, R> callback, Q message, { String debugLabel }) async {
-  if (!kReleaseMode) {
-    debugLabel ??= callback.toString();
-  }
+Future<R> compute<Q, R>(isolates.ComputeCallback<Q, R> callback, Q message, { String? debugLabel }) async {
+  debugLabel ??= kReleaseMode ? 'compute' : callback.toString();
   final Flow flow = Flow.begin();
   Timeline.startSync('$debugLabel: start', flow: flow);
   final ReceivePort resultPort = ReceivePort();
+  final ReceivePort exitPort = ReceivePort();
   final ReceivePort errorPort = ReceivePort();
   Timeline.finishSync();
   final Isolate isolate = await Isolate.spawn<_IsolateConfiguration<Q, FutureOr<R>>>(
@@ -30,7 +29,7 @@ Future<R> compute<Q, R>(isolates.ComputeCallback<Q, R> callback, Q message, { St
       flow.id,
     ),
     errorsAreFatal: true,
-    onExit: resultPort.sendPort,
+    onExit: exitPort.sendPort,
     onError: errorPort.sendPort,
   );
   final Completer<R> result = Completer<R>();
@@ -43,6 +42,11 @@ Future<R> compute<Q, R>(isolates.ComputeCallback<Q, R> callback, Q message, { St
       Zone.current.handleUncaughtError(exception, stack);
     } else {
       result.completeError(exception, stack);
+    }
+  });
+  exitPort.listen((dynamic exitData) {
+    if (!result.isCompleted) {
+      result.completeError(Exception('Isolate exited without result or error.'));
     }
   });
   resultPort.listen((dynamic resultData) {
@@ -78,10 +82,12 @@ class _IsolateConfiguration<Q, R> {
 }
 
 Future<void> _spawn<Q, R>(_IsolateConfiguration<Q, FutureOr<R>> configuration) async {
-  R result;
-  await Timeline.timeSync(
-    '${configuration.debugLabel}',
-    () async { result = await configuration.apply(); },
+  final R result = await Timeline.timeSync(
+    configuration.debugLabel,
+    () async {
+      final FutureOr<R> applicationResult = await configuration.apply();
+      return await applicationResult;
+    },
     flow: Flow.step(configuration.flowId),
   );
   Timeline.timeSync(

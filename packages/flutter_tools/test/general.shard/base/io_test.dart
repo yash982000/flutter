@@ -15,7 +15,7 @@ import '../../src/io.dart';
 
 void main() {
   test('IOOverrides can inject a memory file system', () async {
-    final MemoryFileSystem memoryFileSystem = MemoryFileSystem();
+    final MemoryFileSystem memoryFileSystem = MemoryFileSystem.test();
     final FlutterIOOverrides flutterIOOverrides = FlutterIOOverrides(fileSystem: memoryFileSystem);
     await io.IOOverrides.runWithIOOverrides(() async {
       // statics delegate correctly.
@@ -70,7 +70,7 @@ void main() {
   });
 
   test('exit throws a StateError if called without being overriden', () {
-    expect(() => exit(0), throwsA(isInstanceOf<AssertionError>()));
+    expect(() => exit(0), throwsAssertionError);
   });
 
   test('exit does not throw a StateError if overriden', () {

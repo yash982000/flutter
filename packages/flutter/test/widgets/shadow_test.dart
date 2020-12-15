@@ -39,8 +39,7 @@ void main() {
     debugDisableShadows = true;
   });
 
-  testWidgets('Shadows on ShapeDecoration', (WidgetTester tester) async {
-    debugDisableShadows = false;
+  group('Shadows on ShapeDecoration', () {
     Widget build(int elevation) {
       return Center(
         child: RepaintBoundary(
@@ -57,13 +56,16 @@ void main() {
       );
     }
     for (final int elevation in kElevationToShadow.keys) {
-      await tester.pumpWidget(build(elevation));
-      await expectLater(
-        find.byType(Container),
-        matchesGoldenFile('shadow.ShapeDecoration.$elevation.png'),
-      );
+      testWidgets('elevation $elevation', (WidgetTester tester) async {
+        debugDisableShadows = false;
+        await tester.pumpWidget(build(elevation));
+        await expectLater(
+          find.byType(Container),
+          matchesGoldenFile('shadow.ShapeDecoration.$elevation.png'),
+        );
+        debugDisableShadows = true;
+      });
     }
-    debugDisableShadows = true;
   });
 
   testWidgets('Shadows with PhysicalLayer', (WidgetTester tester) async {
@@ -75,7 +77,7 @@ void main() {
             color: Colors.yellow[200],
             child: PhysicalModel(
               elevation: 9.0,
-              color: Colors.blue[900],
+              color: Colors.blue[900]!,
               child: const SizedBox(
                 height: 100.0,
                 width: 100.0,
@@ -99,8 +101,7 @@ void main() {
     debugDisableShadows = true;
   });
 
-  testWidgets('Shadows with PhysicalShape', (WidgetTester tester) async {
-    debugDisableShadows = false;
+  group('Shadows with PhysicalShape', () {
     Widget build(double elevation) {
       return Center(
         child: RepaintBoundary(
@@ -108,8 +109,9 @@ void main() {
             padding: const EdgeInsets.all(150.0),
             color: Colors.yellow[200],
             child: PhysicalShape(
-              color: Colors.green[900],
-              clipper: ShapeBorderClipper(shape: BeveledRectangleBorder(borderRadius: BorderRadius.circular(20.0))),
+              color: Colors.green[900]!,
+              clipper: ShapeBorderClipper(shape: BeveledRectangleBorder(
+                borderRadius: BorderRadius.circular(20.0))),
               elevation: elevation,
               child: const SizedBox(
                 height: 100.0,
@@ -120,13 +122,17 @@ void main() {
         ),
       );
     }
+
     for (final int elevation in kElevationToShadow.keys) {
-      await tester.pumpWidget(build(elevation.toDouble()));
-      await expectLater(
-        find.byType(Container),
-        matchesGoldenFile('shadow.PhysicalShape.$elevation.png'),
-      );
+      testWidgets('elevation $elevation', (WidgetTester tester) async {
+        debugDisableShadows = false;
+        await tester.pumpWidget(build(elevation.toDouble()));
+        await expectLater(
+          find.byType(Container),
+          matchesGoldenFile('shadow.PhysicalShape.$elevation.png'),
+        );
+        debugDisableShadows = true;
+      });
     }
-    debugDisableShadows = true;
   });
 }

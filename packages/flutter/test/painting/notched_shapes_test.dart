@@ -9,7 +9,7 @@ import 'package:flutter/painting.dart';
 
 void main() {
   group('CircularNotchedRectangle', () {
-    test('guest and host don\'t overlap', () {
+    test("guest and host don't overlap", () {
       const CircularNotchedRectangle shape = CircularNotchedRectangle();
       const Rect host = Rect.fromLTRB(0.0, 100.0, 300.0, 300.0);
       const Rect guest = Rect.fromLTWH(50.0, 50.0, 10.0, 10.0);
@@ -81,7 +81,7 @@ void main() {
           sampleSize: 100,
         ),
       );
-    }, skip: isBrowser);
+    }, skip: isBrowser); // https://github.com/flutter/flutter/issues/44572
 
     test('AutomaticNotchedShape - no guest', () {
       expect(

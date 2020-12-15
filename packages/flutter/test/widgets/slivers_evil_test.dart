@@ -44,10 +44,10 @@ class TestBehavior extends ScrollBehavior {
 }
 
 class TestScrollPhysics extends ClampingScrollPhysics {
-  const TestScrollPhysics({ ScrollPhysics parent }) : super(parent: parent);
+  const TestScrollPhysics({ ScrollPhysics? parent }) : super(parent: parent);
 
   @override
-  TestScrollPhysics applyTo(ScrollPhysics ancestor) {
+  TestScrollPhysics applyTo(ScrollPhysics? ancestor) {
     return TestScrollPhysics(parent: parent?.applyTo(ancestor) ?? ancestor);
   }
 
@@ -57,9 +57,9 @@ class TestScrollPhysics extends ClampingScrollPhysics {
 
 class TestViewportScrollPosition extends ScrollPositionWithSingleContext {
   TestViewportScrollPosition({
-    ScrollPhysics physics,
-    ScrollContext context,
-    ScrollPosition oldPosition,
+    required ScrollPhysics physics,
+    required ScrollContext context,
+    ScrollPosition? oldPosition,
   }) : super(physics: physics, context: context, oldPosition: oldPosition);
 
   @override
@@ -225,8 +225,8 @@ void main() {
     await tester.pump();
 
     // Screen is 600px high. Moved bottom item 500px up. It's now at the top.
-    expect(tester.getTopLeft(find.widgetWithText(DecoratedBox, '5')).dy, 0.0);
-    expect(tester.getBottomLeft(find.widgetWithText(DecoratedBox, '10')).dy, 600.0);
+    expect(tester.getTopLeft(find.widgetWithText(Container, '5')).dy, 0.0);
+    expect(tester.getBottomLeft(find.widgetWithText(Container, '10')).dy, 600.0);
 
     // Stop returning the first 3 items.
     await tester.pumpWidget(MaterialApp(
@@ -258,10 +258,10 @@ void main() {
     // Move up by 4 items, meaning item 1 would have been at the top but
     // 0 through 3 no longer exist, so item 4, 3 items down, is the first one.
     // Item 4 is also shifted to the top.
-    expect(tester.getTopLeft(find.widgetWithText(DecoratedBox, '4')).dy, 0.0);
+    expect(tester.getTopLeft(find.widgetWithText(Container, '4')).dy, 0.0);
 
     // Because the screen is still 600px, item 9 is now visible at the bottom instead
     // of what's supposed to be item 6 had we not re-shifted.
-    expect(tester.getBottomLeft(find.widgetWithText(DecoratedBox, '9')).dy, 600.0);
+    expect(tester.getBottomLeft(find.widgetWithText(Container, '9')).dy, 600.0);
   });
 }

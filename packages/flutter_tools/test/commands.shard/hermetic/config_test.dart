@@ -7,7 +7,6 @@ import 'dart:convert';
 import 'package:args/command_runner.dart';
 import 'package:flutter_tools/src/android/android_sdk.dart';
 import 'package:flutter_tools/src/android/android_studio.dart';
-import 'package:flutter_tools/src/base/common.dart';
 import 'package:flutter_tools/src/base/context.dart';
 import 'package:flutter_tools/src/build_info.dart';
 import 'package:flutter_tools/src/cache.dart';
@@ -102,7 +101,7 @@ void main() {
       expect(() => commandRunner.run(<String>[
         'config',
         '--build-dir=/foo',
-      ]), throwsA(isInstanceOf<ToolExit>()));
+      ]), throwsToolExit());
       verifyNoAnalytics();
     }, overrides: <Type, Generator>{
       Usage: () => mockUsage,
@@ -162,7 +161,10 @@ void main() {
         '--enable-web'
       ]);
 
-      expect(testLogger.statusText, contains('You may need to restart any open editors'));
+      expect(
+        testLogger.statusText,
+        containsIgnoringWhitespace('You may need to restart any open editors'),
+      );
     }, overrides: <Type, Generator>{
       Usage: () => mockUsage,
     });
@@ -184,10 +186,22 @@ void main() {
         'config',
       ]);
 
-      expect(testLogger.statusText, contains('enable-web: true (Unavailable)'));
-      expect(testLogger.statusText, contains('enable-linux-desktop: true (Unavailable)'));
-      expect(testLogger.statusText, contains('enable-windows-desktop: true (Unavailable)'));
-      expect(testLogger.statusText, contains('enable-macos-desktop: true (Unavailable)'));
+      expect(
+        testLogger.statusText,
+        containsIgnoringWhitespace('enable-web: true (Unavailable)'),
+      );
+      expect(
+        testLogger.statusText,
+        containsIgnoringWhitespace('enable-linux-desktop: true (Unavailable)'),
+      );
+      expect(
+        testLogger.statusText,
+        containsIgnoringWhitespace('enable-windows-desktop: true (Unavailable)'),
+      );
+      expect(
+        testLogger.statusText,
+        containsIgnoringWhitespace('enable-macos-desktop: true (Unavailable)'),
+      );
       verifyNoAnalytics();
     }, overrides: <Type, Generator>{
       AndroidStudio: () => mockAndroidStudio,
@@ -218,6 +232,9 @@ void main() {
       ]);
 
       expect(mockUsage.enabled, false);
+
+      // Verify that we flushed the analytics queue.
+      verify(mockUsage.ensureAnalyticsSent());
 
       // Verify that we only send the analytics disable event, and no other
       // info.
@@ -271,6 +288,24 @@ void main() {
     }, overrides: <Type, Generator>{
       Usage: () => mockUsage,
     });
+
+    testUsingContext('analytics reported disabled when suppressed', () async {
+      final ConfigCommand configCommand = ConfigCommand();
+      final CommandRunner<void> commandRunner = createTestCommandRunner(configCommand);
+
+      mockUsage.suppressAnalytics = true;
+
+      await commandRunner.run(<String>[
+        'config',
+      ]);
+
+      expect(
+        testLogger.statusText,
+        containsIgnoringWhitespace('Analytics reporting is currently disabled'),
+      );
+    }, overrides: <Type, Generator>{
+      Usage: () => mockUsage,
+    });
   });
 }
 
@@ -289,4 +324,7 @@ class MockFlutterVersion extends Mock implements FlutterVersion {}
 class MockUsage extends Mock implements Usage {
   @override
   bool enabled = true;
+
+  @override
+  bool suppressAnalytics = false;
 }

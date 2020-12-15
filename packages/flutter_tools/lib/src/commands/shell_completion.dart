@@ -2,13 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
 import 'package:completion/completion.dart';
 
 import '../base/common.dart';
 import '../base/file_system.dart';
-import '../base/io.dart';
 import '../globals.dart' as globals;
 import '../runner/flutter_command.dart';
 
@@ -49,7 +46,8 @@ class ShellCompletionCommand extends FlutterCommand {
     }
 
     if (argResults.rest.isEmpty || argResults.rest.first == '-') {
-      stdout.write(generateCompletionScript(<String>['flutter']));
+      final String script = generateCompletionScript(<String>['flutter']);
+      globals.stdio.stdoutWrite(script);
       return FlutterCommandResult.warning();
     }
 

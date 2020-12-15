@@ -6,9 +6,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 
 void main() {
+  // Pumps and ensures that the BottomSheet animates non-linearly.
+  Future<void> _checkNonLinearAnimation(WidgetTester tester) async {
+    final Offset firstPosition = tester.getCenter(find.text('One'));
+    await tester.pump(const Duration(milliseconds: 30));
+    final Offset secondPosition = tester.getCenter(find.text('One'));
+    await tester.pump(const Duration(milliseconds: 30));
+    final Offset thirdPosition = tester.getCenter(find.text('One'));
+
+    final double dyDelta1 = secondPosition.dy - firstPosition.dy;
+    final double dyDelta2 = thirdPosition.dy - secondPosition.dy;
+
+    // If the animation were linear, these two values would be the same.
+    expect(dyDelta1, isNot(moreOrLessEquals(dyDelta2, epsilon: 0.1)));
+  }
+
   testWidgets('Verify that a BottomSheet can be rebuilt with ScaffoldFeatureController.setState()', (WidgetTester tester) async {
     final GlobalKey<ScaffoldState> scaffoldKey = GlobalKey<ScaffoldState>();
-    PersistentBottomSheetController<void> bottomSheet;
     int buildCount = 0;
 
     await tester.pumpWidget(MaterialApp(
@@ -18,7 +32,7 @@ void main() {
       ),
     ));
 
-    bottomSheet = scaffoldKey.currentState.showBottomSheet<void>((_) {
+    final PersistentBottomSheetController<void> bottomSheet = scaffoldKey.currentState!.showBottomSheet<void>((_) {
       return Builder(
         builder: (BuildContext context) {
           buildCount += 1;
@@ -29,7 +43,7 @@ void main() {
 
     await tester.pump();
     expect(buildCount, equals(1));
-    bottomSheet.setState(() { });
+    bottomSheet.setState!(() { });
     await tester.pump();
     expect(buildCount, equals(2));
   });
@@ -75,7 +89,7 @@ void main() {
       ),
     ));
 
-    scaffoldKey.currentState.showBottomSheet<void>((BuildContext context) {
+    scaffoldKey.currentState!.showBottomSheet<void>((BuildContext context) {
       return ListView(
         shrinkWrap: true,
         primary: false,
@@ -97,6 +111,41 @@ void main() {
     expect(find.text('Two'), findsNothing);
   });
 
+  testWidgets('Verify that a BottomSheet animates non-linearly', (WidgetTester tester) async {
+    final GlobalKey<ScaffoldState> scaffoldKey = GlobalKey<ScaffoldState>();
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        key: scaffoldKey,
+        body: const Center(child: Text('body')),
+      ),
+    ));
+
+    scaffoldKey.currentState!.showBottomSheet<void>((BuildContext context) {
+      return ListView(
+        shrinkWrap: true,
+        primary: false,
+        children: <Widget>[
+          Container(height: 100.0, child: const Text('One')),
+          Container(height: 100.0, child: const Text('Two')),
+          Container(height: 100.0, child: const Text('Three')),
+        ],
+      );
+    });
+    await tester.pump();
+    await _checkNonLinearAnimation(tester);
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('Two'), findsOneWidget);
+
+    await tester.drag(find.text('Two'), const Offset(0.0, 200.0));
+    await _checkNonLinearAnimation(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Two'), findsNothing);
+  });
+
   testWidgets('Verify that a scrollControlled BottomSheet can be dismissed', (WidgetTester tester) async {
     final GlobalKey<ScaffoldState> scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -107,7 +156,7 @@ void main() {
       ),
     ));
 
-    scaffoldKey.currentState.showBottomSheet<void>(
+    scaffoldKey.currentState!.showBottomSheet<void>(
       (BuildContext context) {
         return DraggableScrollableSheet(
           expand: false,
@@ -261,7 +310,7 @@ void main() {
       ),
     ));
 
-    scaffoldKey.currentState.showBottomSheet<void>(
+    scaffoldKey.currentState!.showBottomSheet<void>(
       (BuildContext context) {
         return DraggableScrollableSheet(
           expand: false,
@@ -311,7 +360,7 @@ void main() {
 
     int buildCount = 0;
     showBottomSheet<void>(
-      context: key.currentContext,
+      context: key.currentContext!,
       builder: (BuildContext context) {
         return Builder(
           builder: (BuildContext context) {
@@ -326,8 +375,8 @@ void main() {
   });
 
   testWidgets('Scaffold removes top MediaQuery padding', (WidgetTester tester) async {
-    BuildContext scaffoldContext;
-    BuildContext bottomSheetContext;
+    late BuildContext scaffoldContext;
+    late BuildContext bottomSheetContext;
 
     await tester.pumpWidget(MaterialApp(
       home: MediaQuery(
@@ -381,7 +430,7 @@ void main() {
             height: 200.0,
             child: Builder(
               builder: (BuildContext context) {
-                return RaisedButton(
+                return ElevatedButton(
                   child: const Text('showModalBottomSheet'),
                   onPressed: () {
                     showModalBottomSheet<void>(
@@ -440,7 +489,7 @@ void main() {
       ),
     ));
 
-    scaffoldKey.currentState.showBottomSheet<void>((BuildContext context) {
+    scaffoldKey.currentState!.showBottomSheet<void>((BuildContext context) {
       return ListView(
         shrinkWrap: true,
         primary: false,
@@ -470,7 +519,7 @@ void main() {
       ),
     ));
 
-    final PersistentBottomSheetController<void> bottomSheet = scaffoldKey.currentState.showBottomSheet<void>((_) {
+    final PersistentBottomSheetController<void> bottomSheet = scaffoldKey.currentState!.showBottomSheet<void>((_) {
       return Builder(
         builder: (BuildContext context) {
           return Container(height: 200.0);

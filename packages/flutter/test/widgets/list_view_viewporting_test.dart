@@ -180,7 +180,7 @@ void main() {
 
   testWidgets('ListView reinvoke builders', (WidgetTester tester) async {
     final List<int> callbackTracker = <int>[];
-    final List<String> text = <String>[];
+    final List<String?> text = <String?>[];
 
     final IndexedWidgetBuilder itemBuilder = (BuildContext context, int index) {
       callbackTracker.add(index);
@@ -230,7 +230,7 @@ void main() {
   });
 
   testWidgets('ListView reinvoke builders', (WidgetTester tester) async {
-    StateSetter setState;
+    late StateSetter setState;
     ThemeData themeData = ThemeData.light();
 
     final IndexedWidgetBuilder itemBuilder = (BuildContext context, int index) {
@@ -259,9 +259,8 @@ void main() {
       ),
     );
 
-    DecoratedBox widget = tester.firstWidget(find.byType(DecoratedBox));
-    BoxDecoration decoration = widget.decoration as BoxDecoration;
-    expect(decoration.color, equals(Colors.blue));
+    Container widget = tester.firstWidget(find.byType(Container));
+    expect(widget.color, equals(Colors.blue));
 
     setState(() {
       themeData = ThemeData(primarySwatch: Colors.green);
@@ -269,9 +268,8 @@ void main() {
 
     await tester.pump();
 
-    widget = tester.firstWidget(find.byType(DecoratedBox));
-    decoration = widget.decoration as BoxDecoration;
-    expect(decoration.color, equals(Colors.green));
+    widget = tester.firstWidget(find.byType(Container));
+    expect(widget.color, equals(Colors.green));
   });
 
   testWidgets('ListView padding', (WidgetTester tester) async {
@@ -319,10 +317,10 @@ void main() {
 
     final RenderSliverList list = tester.renderObject(find.byType(SliverList));
 
-    expect(list.indexOf(list.firstChild), equals(0));
-    expect(list.indexOf(list.lastChild), equals(2));
-    expect(list.childScrollOffset(list.firstChild), equals(0.0));
-    expect(list.geometry.scrollExtent, equals(300.0));
+    expect(list.indexOf(list.firstChild!), equals(0));
+    expect(list.indexOf(list.lastChild!), equals(2));
+    expect(list.childScrollOffset(list.firstChild!), equals(0.0));
+    expect(list.geometry!.scrollExtent, equals(300.0));
 
     expect(list, hasAGoodToStringDeep);
     expect(
@@ -335,8 +333,8 @@ void main() {
         ' │   GrowthDirection.forward, ScrollDirection.idle, scrollOffset:\n'
         ' │   0.0, remainingPaintExtent: 600.0, crossAxisExtent: 800.0,\n'
         ' │   crossAxisDirection: AxisDirection.right,\n'
-        ' │   viewportMainAxisExtent: 600.0, remainingCacheExtent: 850.0\n'
-        ' │   cacheOrigin: 0.0 )\n'
+        ' │   viewportMainAxisExtent: 600.0, remainingCacheExtent: 850.0,\n'
+        ' │   cacheOrigin: 0.0)\n'
         ' │ geometry: SliverGeometry(scrollExtent: 300.0, paintExtent: 300.0,\n'
         ' │   maxPaintExtent: 300.0, cacheExtent: 300.0)\n'
         ' │ currently live children: 0 to 2\n'
@@ -511,7 +509,7 @@ void main() {
               itemBuilder: (_, int i) => Container(
                 height: 200.0,
                 width: 200.0,
-                color: i % 2 == 0 ? Colors.black : Colors.red,
+                color: i.isEven ? Colors.black : Colors.red,
               ),
             ),
           ),

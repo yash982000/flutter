@@ -7,29 +7,33 @@ import 'dart:async';
 import 'package:meta/meta.dart';
 
 import 'base/file_system.dart';
+import 'build_info.dart';
 import 'device.dart';
 import 'globals.dart' as globals;
 import 'resident_runner.dart';
 import 'tracing.dart';
 import 'vmservice.dart';
 
-// TODO(mklim): Test this, flutter/flutter#23031.
 class ColdRunner extends ResidentRunner {
   ColdRunner(
     List<FlutterDevice> devices, {
-    String target,
-    DebuggingOptions debuggingOptions,
+    @required String target,
+    @required DebuggingOptions debuggingOptions,
     this.traceStartup = false,
     this.awaitFirstFrameWhenTracing = true,
     this.applicationBinary,
     bool ipv6 = false,
     bool stayResident = true,
-  }) : super(devices,
-             target: target,
-             debuggingOptions: debuggingOptions,
-             hotMode: false,
-             stayResident: stayResident,
-             ipv6: ipv6);
+    bool machine = false,
+  }) : super(
+          devices,
+          target: target,
+          debuggingOptions: debuggingOptions,
+          hotMode: false,
+          stayResident: stayResident,
+          ipv6: ipv6,
+          machine: machine,
+        );
 
   final bool traceStartup;
   final bool awaitFirstFrameWhenTracing;
@@ -48,26 +52,21 @@ class ColdRunner extends ResidentRunner {
     Completer<void> appStartedCompleter,
     String route,
   }) async {
-    final bool prebuiltMode = applicationBinary != null;
-    if (!prebuiltMode) {
-      if (!globals.fs.isFileSync(mainPath)) {
-        String message = 'Tried to run $mainPath, but that file does not exist.';
-        if (target == null) {
-          message += '\nConsider using the -t option to specify the Dart file to start.';
+    try {
+      for (final FlutterDevice device in flutterDevices) {
+        final int result = await device.runCold(
+          coldRunner: this,
+          route: route,
+        );
+        if (result != 0) {
+          appFailedToStart();
+          return result;
         }
-        globals.printError(message);
-        return 1;
       }
-    }
-
-    for (final FlutterDevice device in flutterDevices) {
-      final int result = await device.runCold(
-        coldRunner: this,
-        route: route,
-      );
-      if (result != 0) {
-        return result;
-      }
+    } on Exception catch (err) {
+      globals.printError(err.toString());
+      appFailedToStart();
+      return 1;
     }
 
     // Connect to observatory.
@@ -76,6 +75,7 @@ class ColdRunner extends ResidentRunner {
         await connectToServiceProtocol();
       } on String catch (message) {
         globals.printError(message);
+        appFailedToStart();
         return 2;
       }
     }
@@ -94,8 +94,7 @@ class ColdRunner extends ResidentRunner {
       if (device.vmService == null) {
         continue;
       }
-      device.initLogReader();
-      await device.refreshViews();
+      await device.initLogReader();
       globals.printTrace('Connected to ${device.device.name}');
     }
 
@@ -107,6 +106,8 @@ class ColdRunner extends ResidentRunner {
         await downloadStartupTrace(
           device.vmService,
           awaitFirstFrame: awaitFirstFrameWhenTracing,
+          logger: globals.logger,
+          output: globals.fs.directory(getBuildDirectory()),
         );
       }
       appFinished();
@@ -127,27 +128,24 @@ class ColdRunner extends ResidentRunner {
   Future<int> attach({
     Completer<DebugConnectionInfo> connectionInfoCompleter,
     Completer<void> appStartedCompleter,
+    bool allowExistingDdsInstance = false,
   }) async {
     _didAttach = true;
     try {
-      await connectToServiceProtocol();
-    } catch (error) {
+      await connectToServiceProtocol(
+        getSkSLMethod: writeSkSL,
+        allowExistingDdsInstance: allowExistingDdsInstance,
+      );
+    } on Exception catch (error) {
       globals.printError('Error connecting to the service protocol: $error');
-      // https://github.com/flutter/flutter/issues/33050
-      // TODO(blasten): Remove this check once https://issuetracker.google.com/issues/132325318 has been fixed.
-      if (await hasDeviceRunningAndroidQ(flutterDevices) &&
-          error.toString().contains(kAndroidQHttpConnectionClosedExp)) {
-        globals.printStatus('🔨 If you are using an emulator running Android Q Beta, consider using an emulator running API level 29 or lower.');
-        globals.printStatus('Learn more about the status of this issue on https://issuetracker.google.com/issues/132325318');
-      }
       return 2;
     }
     for (final FlutterDevice device in flutterDevices) {
-      device.initLogReader();
+      await device.initLogReader();
     }
-    await refreshViews();
     for (final FlutterDevice device in flutterDevices) {
-      for (final FlutterView view in device.views) {
+      final List<FlutterView> views = await device.vmService.getFlutterViews();
+      for (final FlutterView view in views) {
         globals.printTrace('Connected to $view.');
       }
     }
@@ -180,15 +178,14 @@ class ColdRunner extends ResidentRunner {
   @override
   void printHelp({ @required bool details }) {
     globals.printStatus('Flutter run key commands.');
-    if (supportsServiceProtocol) {
-      if (details) {
-        printHelpDetails();
-      }
+    if (details) {
+      printHelpDetails();
     }
     commandHelp.h.print();
     if (_didAttach) {
       commandHelp.d.print();
     }
+    commandHelp.c.print();
     commandHelp.q.print();
     for (final FlutterDevice device in flutterDevices) {
       final String dname = device.device.name;
@@ -207,7 +204,7 @@ class ColdRunner extends ResidentRunner {
     for (final FlutterDevice device in flutterDevices) {
       // If we're running in release mode, stop the app using the device logic.
       if (device.vmService == null) {
-        await device.device.stopApp(device.package);
+        await device.device.stopApp(device.package, userIdentifier: device.userIdentifier);
       }
     }
     await super.preExit();

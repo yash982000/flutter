@@ -4,6 +4,8 @@
 
 import 'package:meta/meta.dart';
 
+import '../base/error_handling_io.dart';
+import '../base/file_system.dart';
 import '../base/process.dart';
 import '../base/terminal.dart';
 import '../globals.dart' as globals;
@@ -96,8 +98,14 @@ final GradleHandledError permissionDeniedErrorHandler = GradleHandledError(
   eventLabel: 'permission-denied',
 );
 
-// Gradle crashes for several known reasons when downloading that are not
-// actionable by flutter.
+/// Gradle crashes for several known reasons when downloading that are not
+/// actionable by Flutter.
+///
+/// The Gradle cache directory must be deleted, otherwise it may attempt to
+/// re-use the bad zip file.
+///
+/// See also:
+///  * https://docs.gradle.org/current/userguide/directory_layout.html#dir:gradle_user_home
 @visibleForTesting
 final GradleHandledError networkErrorHandler = GradleHandledError(
   test: _lineMatcher(const <String>[
@@ -108,6 +116,7 @@ final GradleHandledError networkErrorHandler = GradleHandledError(
     'javax.net.ssl.SSLHandshakeException: Remote host closed connection during handshake',
     'java.net.SocketException: Connection reset',
     'java.io.FileNotFoundException',
+    'Gateway Time-out'
   ]),
   handler: ({
     String line,
@@ -116,9 +125,18 @@ final GradleHandledError networkErrorHandler = GradleHandledError(
     bool shouldBuildPluginAsAar,
   }) async {
     globals.printError(
-      '$warningMark Gradle threw an error while trying to update itself. '
-      'Retrying the update...'
+      '$warningMark Gradle threw an error while downloading artifacts from the network. '
+      'Retrying to download...'
     );
+    try {
+      final String homeDir = globals.platform.environment['HOME'];
+      if (homeDir != null) {
+        final Directory directory = globals.fs.directory(globals.fs.path.join(homeDir, '.gradle'));
+        ErrorHandlingFileSystem.deleteIfExists(directory, recursive: true);
+      }
+    } on FileSystemException catch (err) {
+      globals.printTrace('Failed to delete Gradle cache: $err');
+    }
     return GradleBuildStatus.retry;
   },
   eventLabel: 'network',
@@ -182,6 +200,7 @@ final GradleHandledError androidXFailureHandler = GradleHandledError(
       BuildEvent(
         'gradle-android-x-failure',
         eventError: 'app-not-using-plugins',
+        flutterUsage: globals.flutterUsage,
       ).send();
     }
     if (hasPlugins && !usesAndroidX) {
@@ -189,11 +208,12 @@ final GradleHandledError androidXFailureHandler = GradleHandledError(
       // a plugin already migrated to AndroidX.
       globals.printStatus(
         'AndroidX incompatibilities may have caused this build to fail. '
-        'Please migrate your app to AndroidX. See https://goo.gl/CP92wY.'
+        'Please migrate your app to AndroidX. See https://goo.gl/CP92wY .'
       );
       BuildEvent(
         'gradle-android-x-failure',
         eventError: 'app-not-using-androidx',
+        flutterUsage: globals.flutterUsage,
       ).send();
     }
     if (hasPlugins && usesAndroidX && shouldBuildPluginAsAar) {
@@ -203,16 +223,18 @@ final GradleHandledError androidXFailureHandler = GradleHandledError(
       BuildEvent(
         'gradle-android-x-failure',
         eventError: 'using-jetifier',
+        flutterUsage: globals.flutterUsage,
       ).send();
     }
     if (hasPlugins && usesAndroidX && !shouldBuildPluginAsAar) {
       globals.printStatus(
-        'The built failed likely due to AndroidX incompatibilities in a plugin. '
-        'The tool is about to try using Jetfier to solve the incompatibility.'
+        'The build failed likely due to AndroidX incompatibilities in a plugin. '
+        'The tool is about to try using Jetifier to solve the incompatibility.'
       );
       BuildEvent(
         'gradle-android-x-failure',
         eventError: 'not-using-jetifier',
+        flutterUsage: globals.flutterUsage,
       ).send();
       return GradleBuildStatus.retryWithAarPlugins;
     }
@@ -236,8 +258,7 @@ final GradleHandledError licenseNotAcceptedHandler = GradleHandledError(
     bool shouldBuildPluginAsAar,
   }) async {
     const String licenseNotAcceptedMatcher =
-      r'You have not accepted the license agreements of the following SDK components:'
-      r'\s*\[(.+)\]';
+      r'You have not accepted the license agreements of the following SDK components:\s*\[(.+)\]';
 
     final RegExp licenseFailure = RegExp(licenseNotAcceptedMatcher, multiLine: true);
     assert(licenseFailure != null);
@@ -270,7 +291,7 @@ final GradleHandledError flavorUndefinedHandler = GradleHandledError(
     bool usesAndroidX,
     bool shouldBuildPluginAsAar,
   }) async {
-    final RunResult tasksRunResult = await processUtils.run(
+    final RunResult tasksRunResult = await globals.processUtils.run(
       <String>[
         gradleUtils.getExecutable(project),
         'app:tasks' ,

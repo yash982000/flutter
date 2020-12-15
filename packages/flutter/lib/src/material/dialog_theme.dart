@@ -19,7 +19,7 @@ import 'theme.dart';
 /// a border radius of 2.0 on all corners.
 ///
 /// [titleTextStyle] and [contentTextStyle] are used in [AlertDialog]s.
-/// If null, they default to [TextTheme.title] and [TextTheme.subhead],
+/// If null, they default to [TextTheme.headline6] and [TextTheme.subtitle1],
 /// respectively.
 ///
 /// See also:
@@ -27,7 +27,8 @@ import 'theme.dart';
 ///  * [Dialog], a material dialog that can be customized using this [DialogTheme].
 ///  * [ThemeData], which describes the overall theme information for the
 ///    application.
-class DialogTheme extends Diagnosticable {
+@immutable
+class DialogTheme with Diagnosticable {
   /// Creates a dialog theme that can be used for [ThemeData.dialogTheme].
   const DialogTheme({
     this.backgroundColor,
@@ -41,34 +42,34 @@ class DialogTheme extends Diagnosticable {
   ///
   /// If null, [ThemeData.dialogBackgroundColor] is used, if that's null,
   /// defaults to [Colors.white].
-  final Color backgroundColor;
+  final Color? backgroundColor;
 
   /// Default value for [Dialog.elevation].
   ///
   /// If null, the [Dialog] elevation defaults to `24.0`.
-  final double elevation;
+  final double? elevation;
 
   /// Default value for [Dialog.shape].
-  final ShapeBorder shape;
+  final ShapeBorder? shape;
 
   /// Used to configure the [DefaultTextStyle] for the [AlertDialog.title] widget.
   ///
-  /// If null, defaults to [ThemeData.textTheme.title].
-  final TextStyle titleTextStyle;
+  /// If null, defaults to [TextTheme.headline6] of [ThemeData.textTheme].
+  final TextStyle? titleTextStyle;
 
   /// Used to configure the [DefaultTextStyle] for the [AlertDialog.content] widget.
   ///
-  /// If null, defaults to [ThemeData.textTheme.subhead].
-  final TextStyle contentTextStyle;
+  /// If null, defaults to [TextTheme.subtitle1] of [ThemeData.textTheme].
+  final TextStyle? contentTextStyle;
 
   /// Creates a copy of this object but with the given fields replaced with the
   /// new values.
   DialogTheme copyWith({
-    Color backgroundColor,
-    double elevation,
-    ShapeBorder shape,
-    TextStyle titleTextStyle,
-    TextStyle contentTextStyle,
+    Color? backgroundColor,
+    double? elevation,
+    ShapeBorder? shape,
+    TextStyle? titleTextStyle,
+    TextStyle? contentTextStyle,
   }) {
     return DialogTheme(
       backgroundColor: backgroundColor ?? this.backgroundColor,
@@ -89,7 +90,7 @@ class DialogTheme extends Diagnosticable {
   /// The arguments must not be null.
   ///
   /// {@macro dart.ui.shadow.lerp}
-  static DialogTheme lerp(DialogTheme a, DialogTheme b, double t) {
+  static DialogTheme lerp(DialogTheme? a, DialogTheme? b, double t) {
     assert(t != null);
     return DialogTheme(
       backgroundColor: Color.lerp(a?.backgroundColor, b?.backgroundColor, t),

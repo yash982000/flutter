@@ -7,34 +7,41 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
-import 'package:platform/platform.dart';
-
+import 'package:file_testing/file_testing.dart';
+import 'package:flutter_tools/src/artifacts.dart';
 import 'package:flutter_tools/src/base/file_system.dart';
 import 'package:flutter_tools/src/base/io.dart';
+import 'package:flutter_tools/src/base/logger.dart';
 import 'package:flutter_tools/src/base/net.dart';
+import 'package:flutter_tools/src/base/platform.dart';
+import 'package:flutter_tools/src/build_info.dart';
 import 'package:flutter_tools/src/cache.dart';
 import 'package:flutter_tools/src/commands/create.dart';
 import 'package:flutter_tools/src/dart/pub.dart';
-import 'package:flutter_tools/src/dart/sdk.dart';
 import 'package:flutter_tools/src/features.dart';
+import 'package:flutter_tools/src/globals.dart' as globals;
 import 'package:flutter_tools/src/project.dart';
 import 'package:flutter_tools/src/version.dart';
-import 'package:flutter_tools/src/globals.dart' as globals;
-
 import 'package:mockito/mockito.dart';
 import 'package:process/process.dart';
+import 'package:pub_semver/pub_semver.dart';
+import 'package:pubspec_parse/pubspec_parse.dart';
 
 import '../../src/common.dart';
 import '../../src/context.dart';
+import '../../src/pubspec_schema.dart';
 import '../../src/testbed.dart';
 
+const String _kNoPlatformsMessage = 'You\'ve created a plugin project that doesn\'t yet support any platforms.\n';
 const String frameworkRevision = '12345678';
 const String frameworkChannel = 'omega';
+// TODO(fujino): replace FakePlatform.fromPlatform() with FakePlatform()
 final Generator _kNoColorTerminalPlatform = () => FakePlatform.fromPlatform(const LocalPlatform())..stdoutSupportsAnsi = false;
 final Map<Type, Generator> noColorTerminalOverride = <Type, Generator>{
   Platform: _kNoColorTerminalPlatform,
 };
-const String samplesIndexJson = '''[
+const String samplesIndexJson = '''
+[
   { "id": "sample1" },
   { "id": "sample2" }
 ]''';
@@ -44,6 +51,7 @@ void main() {
   Directory projectDir;
   FlutterVersion mockFlutterVersion;
   LoggingProcessManager loggingProcessManager;
+  BufferLogger logger;
 
   setUpAll(() async {
     Cache.disableLocking();
@@ -52,6 +60,7 @@ void main() {
 
   setUp(() {
     loggingProcessManager = LoggingProcessManager();
+    logger = BufferLogger.test();
     tempDir = globals.fs.systemTempDirectory.createTempSync('flutter_tools_create_test.');
     projectDir = tempDir.childDirectory('flutter_project');
     mockFlutterVersion = MockFlutterVersion();
@@ -83,7 +92,14 @@ void main() {
     );
     return _runFlutterTest(projectDir);
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('can create a default project if empty directory exists', () async {
@@ -101,7 +117,14 @@ void main() {
       ],
     );
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('creates a module project correctly', () async {
@@ -112,6 +135,7 @@ void main() {
       '.gitignore',
       '.ios/Flutter',
       '.ios/Flutter/flutter_project.podspec',
+      '.ios/Flutter/engine/Flutter.podspec',
       '.metadata',
       'lib/main.dart',
       'pubspec.yaml',
@@ -123,7 +147,14 @@ void main() {
     ]);
     return _runFlutterTest(projectDir);
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('cannot create a project if non-empty non-project directory exists with .metadata', () async {
@@ -141,7 +172,14 @@ void main() {
         ]),
       throwsToolExit(message: 'Sorry, unable to detect the type of project to recreate'));
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
     ...noColorTerminalOverride,
   });
 
@@ -167,7 +205,14 @@ void main() {
       ],
     );
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('detects and recreates an app project correctly', () async {
@@ -192,32 +237,41 @@ void main() {
       ],
     );
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('detects and recreates a plugin project correctly', () async {
     await projectDir.create(recursive: true);
     await projectDir.absolute.childFile('.metadata').writeAsString('project_type: plugin\n');
-    return _createAndAnalyzeProject(
+    await _createAndAnalyzeProject(
       projectDir,
+      <String>[],
       <String>[
-        '-i', 'objc', '-a', 'java',
-      ],
-      <String>[
-        'android/src/main/java/com/example/flutter_project/FlutterProjectPlugin.java',
-        'example/android/app/src/main/java/com/example/flutter_project_example/MainActivity.java',
-        'example/ios/Runner/AppDelegate.h',
-        'example/ios/Runner/AppDelegate.m',
-        'example/ios/Runner/main.m',
         'example/lib/main.dart',
         'flutter_project.iml',
-        'ios/Classes/FlutterProjectPlugin.h',
-        'ios/Classes/FlutterProjectPlugin.m',
         'lib/flutter_project.dart',
       ],
+      unexpectedPaths: <String>[
+        'android/app/src/main/java/com/example/flutter_project/MainActivity.java',
+        'android/src/main/java/com/example/flutter_project/FlutterProjectPlugin.java',
+        'example/android/app/src/main/java/com/example/flutter_project_example/MainActivity.java',]
     );
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('detects and recreates a package project correctly', () async {
@@ -245,10 +299,19 @@ void main() {
         'ios/Runner/main.m',
         'lib/main.dart',
         'test/widget_test.dart',
+        'integration_test/app_test.dart',
+        'integration_test/driver.dart',
       ],
     );
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('kotlin/swift legacy app project', () async {
@@ -270,7 +333,14 @@ void main() {
       ],
     );
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('can create a package project', () async {
@@ -296,11 +366,20 @@ void main() {
         'ios/Runner/main.m',
         'lib/main.dart',
         'test/widget_test.dart',
+        'integration_test/app_test.dart',
+        'integration_test/driver.dart',
       ],
     );
     return _runFlutterTest(projectDir);
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('can create a plugin project', () async {
@@ -308,27 +387,88 @@ void main() {
       projectDir,
       <String>['--template=plugin', '-i', 'objc', '-a', 'java'],
       <String>[
-        'android/src/main/java/com/example/flutter_project/FlutterProjectPlugin.java',
-        'example/android/app/src/main/java/com/example/flutter_project_example/MainActivity.java',
-        'example/ios/Runner/AppDelegate.h',
-        'example/ios/Runner/AppDelegate.m',
-        'example/ios/Runner/main.m',
         'example/lib/main.dart',
         'flutter_project.iml',
-        'ios/Classes/FlutterProjectPlugin.h',
-        'ios/Classes/FlutterProjectPlugin.m',
         'lib/flutter_project.dart',
+      ],
+      unexpectedPaths: <String>[
+        'android/src/main/java/com/example/flutter_project/FlutterProjectPlugin.java',
+        'example/android/app/src/main/java/com/example/flutter_project_example/MainActivity.java',
+        'lib/flutter_project_web.dart',
       ],
     );
     return _runFlutterTest(projectDir.childDirectory('example'));
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
+  });
+
+  testUsingContext('plugin project supports web', () async {
+    await _createAndAnalyzeProject(
+      projectDir,
+      <String>['--template=plugin', '--platforms=web'],
+      <String>[
+        'lib/flutter_project.dart',
+        'lib/flutter_project_web.dart',
+      ],
+    );
+    final String rawPubspec = await projectDir.childFile('pubspec.yaml').readAsString();
+    final Pubspec pubspec = Pubspec.parse(rawPubspec);
+    // Expect the dependency on flutter_web_plugins exists
+    expect(pubspec.dependencies, contains('flutter_web_plugins'));
+    // The platform is correctly registered
+    expect(pubspec.flutter['plugin']['platforms']['web']['pluginClass'], 'FlutterProjectWeb');
+    expect(pubspec.flutter['plugin']['platforms']['web']['fileName'], 'flutter_project_web.dart');
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWebEnabled: true),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
+    Logger: ()=>logger,
+  });
+
+  testUsingContext('plugin example app depends on plugin', () async {
+    await _createProject(
+      projectDir,
+      <String>['--template=plugin', '-i', 'objc', '-a', 'java'],
+      <String>[
+        'example/pubspec.yaml',
+      ],
+    );
+    final String rawPubspec = await projectDir.childDirectory('example').childFile('pubspec.yaml').readAsString();
+    final Pubspec pubspec = Pubspec.parse(rawPubspec);
+    final String pluginName = projectDir.basename;
+    expect(pubspec.dependencies, contains(pluginName));
+    expect(pubspec.dependencies[pluginName] is PathDependency, isTrue);
+    final PathDependency pathDependency = pubspec.dependencies[pluginName] as PathDependency;
+    expect(pathDependency.path, '../');
+  }, overrides: <Type, Generator>{
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('kotlin/swift plugin project', () async {
     return _createProject(
       projectDir,
-      <String>['--no-pub', '--template=plugin', '-a', 'kotlin', '--ios-language', 'swift'],
+      <String>['--no-pub', '--template=plugin', '-a', 'kotlin', '--ios-language', 'swift', '--platforms', 'ios,android'],
       <String>[
         'android/src/main/kotlin/com/example/flutter_project/FlutterProjectPlugin.kt',
         'example/android/app/src/main/kotlin/com/example/flutter_project_example/MainActivity.kt',
@@ -359,6 +499,7 @@ void main() {
         '--org', 'com.bar.foo',
         '-i', 'objc',
         '-a', 'java',
+        '--platforms', 'android',
       ], <String>[
         'android/src/main/java/com/bar/foo/flutter_project/FlutterProjectPlugin.java',
         'example/android/app/src/main/java/com/bar/foo/flutter_project_example/MainActivity.java',
@@ -379,6 +520,7 @@ void main() {
         '--project-name', 'xyz',
         '-i', 'objc',
         '-a', 'java',
+        '--platforms', 'android,ios',
       ], <String>[
         'android/src/main/java/com/example/xyz/XyzPlugin.java',
         'example/android/app/src/main/java/com/example/xyz_example/MainActivity.java',
@@ -393,21 +535,11 @@ void main() {
   testUsingContext('plugin project with invalid custom project name', () async {
     expect(
       () => _createProject(projectDir,
-        <String>['--no-pub', '--template=plugin', '--project-name', 'xyz.xyz'],
+        <String>['--no-pub', '--template=plugin', '--project-name', 'xyz.xyz', '--platforms', 'android,ios',],
         <String>[],
       ),
       throwsToolExit(message: '"xyz.xyz" is not a valid Dart package name.'),
     );
-  });
-
-  testUsingContext('legacy app project with-driver-test', () async {
-    return _createAndAnalyzeProject(
-      projectDir,
-      <String>['--with-driver-test', '--template=app'],
-      <String>['lib/main.dart'],
-    );
-  }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
   });
 
   testUsingContext('module project with pub', () async {
@@ -442,7 +574,14 @@ void main() {
       '.android/Flutter/src/main/java/io/flutter/facade/Flutter.java',
     ]);
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
 
@@ -467,27 +606,6 @@ void main() {
     expect(actualContents.contains('useAndroidX'), true);
   });
 
-  testUsingContext('non androidx app project', () async {
-    Cache.flutterRoot = '../..';
-    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
-    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
-
-    final CreateCommand command = CreateCommand();
-    final CommandRunner<void> runner = createTestCommandRunner(command);
-
-    await runner.run(<String>['create', '--no-pub', '--no-androidx', projectDir.path]);
-
-    void expectExists(String relPath) {
-      expect(globals.fs.isFileSync('${projectDir.path}/$relPath'), true);
-    }
-
-    expectExists('android/gradle.properties');
-
-    final String actualContents = await globals.fs.file(projectDir.path + '/android/gradle.properties').readAsString();
-
-    expect(actualContents.contains('useAndroidX'), false);
-  });
-
   testUsingContext('androidx is used by default in a module project', () async {
     Cache.flutterRoot = '../..';
     when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
@@ -505,23 +623,6 @@ void main() {
     );
   });
 
-  testUsingContext('non androidx module', () async {
-    Cache.flutterRoot = '../..';
-    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
-    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
-
-    final CreateCommand command = CreateCommand();
-    final CommandRunner<void> runner = createTestCommandRunner(command);
-
-    await runner.run(<String>['create', '--template=module', '--no-pub', '--no-androidx', projectDir.path]);
-
-    final FlutterProject project = FlutterProject.fromDirectory(projectDir);
-    expect(
-      project.usesAndroidX,
-      false,
-    );
-  });
-
   testUsingContext('androidx is used by default in a plugin project', () async {
     Cache.flutterRoot = '../..';
     when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
@@ -530,7 +631,7 @@ void main() {
     final CreateCommand command = CreateCommand();
     final CommandRunner<void> runner = createTestCommandRunner(command);
 
-    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms', 'android', projectDir.path]);
 
     void expectExists(String relPath) {
       expect(globals.fs.isFileSync('${projectDir.path}/$relPath'), true);
@@ -543,7 +644,7 @@ void main() {
     expect(actualContents.contains('useAndroidX'), true);
   });
 
-  testUsingContext('non androidx plugin project', () async {
+  testUsingContext('creating a new project should create v2 embedding and never show an Android v1 deprecation warning', () async {
     Cache.flutterRoot = '../..';
     when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
     when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
@@ -551,17 +652,134 @@ void main() {
     final CreateCommand command = CreateCommand();
     final CommandRunner<void> runner = createTestCommandRunner(command);
 
-    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--no-androidx', projectDir.path]);
+    await runner.run(<String>['create', '--no-pub', '--platforms', 'android', projectDir.path]);
 
-    void expectExists(String relPath) {
-      expect(globals.fs.isFileSync('${projectDir.path}/$relPath'), true);
-    }
+    final String androidManifest = await globals.fs.file(
+      projectDir.path + '/android/app/src/main/AndroidManifest.xml'
+    ).readAsString();
+    expect(androidManifest.contains('android:name="flutterEmbedding"'), true);
+    expect(androidManifest.contains('android:value="2"'), true);
 
-    expectExists('android/gradle.properties');
+    final String mainActivity = await globals.fs.file(
+      projectDir.path +  '/android/app/src/main/kotlin/com/example/flutter_project/MainActivity.kt'
+    ).readAsString();
+    // Import for the new embedding class.
+    expect(mainActivity.contains('import io.flutter.embedding.android.FlutterActivity'), true);
 
-    final String actualContents = await globals.fs.file(projectDir.path + '/android/gradle.properties').readAsString();
+    expect(logger.statusText, isNot(contains('https://flutter.dev/go/android-project-migration')));
+  }, overrides: <Type, Generator>{
+    Logger: () => logger,
+  });
 
-    expect(actualContents.contains('useAndroidX'), false);
+  testUsingContext('app does not include desktop or web by default', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', projectDir.path]);
+
+    expect(projectDir.childDirectory('linux'), isNot(exists));
+    expect(projectDir.childDirectory('macos'), isNot(exists));
+    expect(projectDir.childDirectory('windows'), isNot(exists));
+    expect(projectDir.childDirectory('web'), isNot(exists));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(),
+  });
+
+  testUsingContext('plugin does not include desktop or web by default',
+      () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(
+        <String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+
+    expect(projectDir.childDirectory('linux'), isNot(exists));
+    expect(projectDir.childDirectory('macos'), isNot(exists));
+    expect(projectDir.childDirectory('windows'), isNot(exists));
+    expect(projectDir.childDirectory('web'), isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('linux'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('macos'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('windows'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('web'),
+        isNot(exists));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(),
+  });
+
+  testUsingContext('app supports Linux if requested', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>[
+      'create',
+      '--no-pub',
+      '--platforms=linux',
+      projectDir.path,
+    ]);
+
+    expect(
+        projectDir.childDirectory('linux').childFile('CMakeLists.txt'), exists);
+    expect(projectDir.childDirectory('android'), isNot(exists));
+    expect(projectDir.childDirectory('ios'), isNot(exists));
+    expect(projectDir.childDirectory('windows'), isNot(exists));
+    expect(projectDir.childDirectory('macos'), isNot(exists));
+    expect(projectDir.childDirectory('web'), isNot(exists));
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
+    Logger: () => logger,
+  });
+
+  testUsingContext('plugin supports Linux if requested', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=linux', projectDir.path]);
+
+    expect(
+        projectDir.childDirectory('linux').childFile('CMakeLists.txt'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('linux'), exists);
+    expect(projectDir.childDirectory('example').childDirectory('android'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('ios'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('windows'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('macos'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('web'),
+        isNot(exists));
+    validatePubspecForPlugin(
+        projectDir: projectDir.absolute.path,
+        expectedPlatforms: const <String>[
+          'linux',
+        ],
+        pluginClass: 'FlutterProjectPlugin',
+    unexpectedPlatforms: <String>['some_platform']);
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
+    Logger: () => logger,
   });
 
   testUsingContext('app supports macOS if requested', () async {
@@ -572,26 +790,25 @@ void main() {
     final CreateCommand command = CreateCommand();
     final CommandRunner<void> runner = createTestCommandRunner(command);
 
-    await runner.run(<String>['create', '--no-pub', projectDir.path]);
+    await runner.run(<String>[
+      'create',
+      '--no-pub',
+      '--platforms=macos',
+      projectDir.path,
+    ]);
 
-    expect(projectDir.childDirectory('macos').childDirectory('Runner.xcworkspace').existsSync(), true);
+    expect(
+        projectDir.childDirectory('macos').childDirectory('Runner.xcworkspace'),
+        exists);
+    expect(projectDir.childDirectory('android'), isNot(exists));
+    expect(projectDir.childDirectory('ios'), isNot(exists));
+    expect(projectDir.childDirectory('linux'), isNot(exists));
+    expect(projectDir.childDirectory('windows'), isNot(exists));
+    expect(projectDir.childDirectory('web'), isNot(exists));
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
   }, overrides: <Type, Generator>{
     FeatureFlags: () => TestFeatureFlags(isMacOSEnabled: true),
-  });
-
-  testUsingContext('app does not include macOS by default', () async {
-    Cache.flutterRoot = '../..';
-    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
-    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
-
-    final CreateCommand command = CreateCommand();
-    final CommandRunner<void> runner = createTestCommandRunner(command);
-
-    await runner.run(<String>['create', '--no-pub', projectDir.path]);
-
-    expect(projectDir.childDirectory('macos').childDirectory('Runner.xcworkspace').existsSync(), false);
-  }, overrides: <Type, Generator>{
-    FeatureFlags: () => TestFeatureFlags(isMacOSEnabled: false),
+    Logger: () => logger,
   });
 
   testUsingContext('plugin supports macOS if requested', () async {
@@ -602,14 +819,154 @@ void main() {
     final CreateCommand command = CreateCommand();
     final CommandRunner<void> runner = createTestCommandRunner(command);
 
-    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=macos', projectDir.path]);
 
-    expect(projectDir.childDirectory('macos').childFile('flutter_project.podspec').existsSync(), true);
+    expect(projectDir.childDirectory('macos').childFile('flutter_project.podspec'),
+        exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('macos'), exists);
+    expect(projectDir.childDirectory('example').childDirectory('linux'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('android'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('ios'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('windows'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('web'),
+        isNot(exists));
+    validatePubspecForPlugin(projectDir: projectDir.absolute.path, expectedPlatforms: const <String>[
+      'macos',
+    ], pluginClass: 'FlutterProjectPlugin',
+    unexpectedPlatforms: <String>['some_platform']);
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
   }, overrides: <Type, Generator>{
     FeatureFlags: () => TestFeatureFlags(isMacOSEnabled: true),
+    Logger: () => logger,
   });
 
-  testUsingContext('plugin does not include macOS by default', () async {
+  testUsingContext('app supports Windows if requested', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>[
+      'create',
+      '--no-pub',
+      '--platforms=windows',
+      projectDir.path,
+    ]);
+
+    expect(projectDir.childDirectory('windows').childFile('CMakeLists.txt'),
+        exists);
+    expect(projectDir.childDirectory('android'), isNot(exists));
+    expect(projectDir.childDirectory('ios'), isNot(exists));
+    expect(projectDir.childDirectory('linux'), isNot(exists));
+    expect(projectDir.childDirectory('macos'), isNot(exists));
+    expect(projectDir.childDirectory('web'), isNot(exists));
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWindowsEnabled: true),
+    Logger: () => logger,
+  });
+
+  testUsingContext('Windows has correct VERSIONINFO', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', '--org', 'com.foo.bar', projectDir.path]);
+
+    final File resourceFile = projectDir.childDirectory('windows').childDirectory('runner').childFile('Runner.rc');
+    expect(resourceFile, exists);
+    final String contents = resourceFile.readAsStringSync();
+    expect(contents, contains('"CompanyName", "com.foo.bar"'));
+    expect(contents, contains('"ProductName", "flutter_project"'));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWindowsEnabled: true),
+  });
+
+  testUsingContext('plugin supports Windows if requested', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=windows', projectDir.path]);
+
+    expect(projectDir.childDirectory('windows').childFile('CMakeLists.txt'),
+        exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('windows'), exists);
+    expect(
+        projectDir
+            .childDirectory('example')
+            .childDirectory('android'),
+        isNot(exists));
+    expect(
+        projectDir.childDirectory('example').childDirectory('ios'),
+        isNot(exists));
+    expect(
+        projectDir
+            .childDirectory('example')
+            .childDirectory('linux'),
+        isNot(exists));
+    expect(
+        projectDir
+            .childDirectory('example')
+            .childDirectory('macos'),
+        isNot(exists));
+    expect(
+        projectDir.childDirectory('example').childDirectory('web'),
+        isNot(exists));
+    validatePubspecForPlugin(projectDir: projectDir.absolute.path, expectedPlatforms: const <String>[
+      'windows'
+    ], pluginClass: 'FlutterProjectPlugin',
+    unexpectedPlatforms: <String>['some_platform']);
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWindowsEnabled: true),
+    Logger: () => logger,
+  });
+
+  testUsingContext('app supports web if requested', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>[
+      'create',
+      '--no-pub',
+      '--platforms=web',
+      projectDir.path,
+    ]);
+
+    expect(
+        projectDir.childDirectory('web').childFile('index.html'),
+        exists);
+    expect(projectDir.childDirectory('android'), isNot(exists));
+    expect(projectDir.childDirectory('ios'), isNot(exists));
+    expect(projectDir.childDirectory('linux'), isNot(exists));
+    expect(projectDir.childDirectory('macos'), isNot(exists));
+    expect(projectDir.childDirectory('windows'), isNot(exists));
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWebEnabled: true),
+    Logger: () => logger,
+  });
+
+  testUsingContext('plugin uses new platform schema', () async {
     Cache.flutterRoot = '../..';
     when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
     when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
@@ -619,9 +976,9 @@ void main() {
 
     await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
 
-    expect(projectDir.childDirectory('macos').childFile('flutter_project.podspec').existsSync(), false);
-  }, overrides: <Type, Generator>{
-    FeatureFlags: () => TestFeatureFlags(isMacOSEnabled: false),
+    final String pubspecContents = await globals.fs.directory(projectDir.path).childFile('pubspec.yaml').readAsString();
+
+    expect(pubspecContents.contains('platforms:'), true);
   });
 
   testUsingContext('has correct content and formatting with module template', () async {
@@ -650,7 +1007,11 @@ void main() {
         final String original = file.readAsStringSync();
 
         final Process process = await Process.start(
-          sdkBinaryName('dartfmt'),
+          globals.fs.path.join(
+            globals.artifacts.getArtifactPath(Artifact.engineDartSdkPath),
+            'bin',
+            globals.platform.isWindows ? 'dartfmt.bat' : 'dartfmt',
+          ),
           <String>[file.path],
           workingDirectory: projectDir.path,
         );
@@ -693,9 +1054,15 @@ void main() {
     final File xcodeProjectFile = globals.fs.file(globals.fs.path.join(projectDir.path, xcodeProjectPath));
     final String xcodeProject = xcodeProjectFile.readAsStringSync();
     expect(xcodeProject, contains('PRODUCT_BUNDLE_IDENTIFIER = com.foo.bar.flutterProject'));
-    // Xcode build system
-    final String xcodeWorkspaceSettingsPath = globals.fs.path.join('.ios', 'Runner.xcworkspace', 'xcshareddata', 'WorkspaceSettings.xcsettings');
-    expectExists(xcodeWorkspaceSettingsPath, false);
+    // Xcode workspace shared data
+    final Directory workspaceSharedData = globals.fs.directory(globals.fs.path.join('.ios', 'Runner.xcworkspace', 'xcshareddata'));
+    expectExists(workspaceSharedData.childFile('WorkspaceSettings.xcsettings').path);
+    expectExists(workspaceSharedData.childFile('IDEWorkspaceChecks.plist').path);
+    // Xcode project shared data
+    final Directory projectSharedData = globals.fs.directory(globals.fs.path.join('.ios', 'Runner.xcodeproj', 'project.xcworkspace', 'xcshareddata'));
+    expectExists(projectSharedData.childFile('WorkspaceSettings.xcsettings').path);
+    expectExists(projectSharedData.childFile('IDEWorkspaceChecks.plist').path);
+
 
     final String versionPath = globals.fs.path.join('.metadata');
     expectExists(versionPath);
@@ -742,7 +1109,11 @@ void main() {
         final String original = file.readAsStringSync();
 
         final Process process = await Process.start(
-          sdkBinaryName('dartfmt'),
+          globals.fs.path.join(
+            globals.artifacts.getArtifactPath(Artifact.engineDartSdkPath),
+            'bin',
+            globals.platform.isWindows ? 'dartfmt.bat' : 'dartfmt',
+          ),
           <String>[file.path],
           workingDirectory: projectDir.path,
         );
@@ -767,6 +1138,14 @@ void main() {
     final File xcodeProjectFile = globals.fs.file(globals.fs.path.join(projectDir.path, xcodeProjectPath));
     final String xcodeProject = xcodeProjectFile.readAsStringSync();
     expect(xcodeProject, contains('PRODUCT_BUNDLE_IDENTIFIER = com.foo.bar.flutterProject'));
+    // Xcode workspace shared data
+    final Directory workspaceSharedData = globals.fs.directory(globals.fs.path.join('ios', 'Runner.xcworkspace', 'xcshareddata'));
+    expectExists(workspaceSharedData.childFile('WorkspaceSettings.xcsettings').path);
+    expectExists(workspaceSharedData.childFile('IDEWorkspaceChecks.plist').path);
+    // Xcode project shared data
+    final Directory projectSharedData = globals.fs.directory(globals.fs.path.join('ios', 'Runner.xcodeproj', 'project.xcworkspace', 'xcshareddata'));
+    expectExists(projectSharedData.childFile('WorkspaceSettings.xcsettings').path);
+    expectExists(projectSharedData.childFile('IDEWorkspaceChecks.plist').path);
 
     final String versionPath = globals.fs.path.join('.metadata');
     expectExists(versionPath);
@@ -791,7 +1170,7 @@ void main() {
     Platform: _kNoColorTerminalPlatform,
   });
 
-  testUsingContext('has correct application id for android and bundle id for ios', () async {
+  testUsingContext('has correct application id for android, bundle id for ios and application id for Linux', () async {
     Cache.flutterRoot = '../..';
     when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
     when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
@@ -803,11 +1182,27 @@ void main() {
     await runner.run(<String>['create', '--template=app', '--no-pub', '--org', 'com.example', tmpProjectDir]);
     FlutterProject project = FlutterProject.fromDirectory(globals.fs.directory(tmpProjectDir));
     expect(
-        await project.ios.productBundleIdentifier,
-        'com.example.helloFlutter',
+      await project.ios.productBundleIdentifier(BuildInfo.debug),
+      'com.example.helloFlutter',
+    );
+    expect(
+      await project.ios.productBundleIdentifier(BuildInfo.profile),
+      'com.example.helloFlutter',
+    );
+    expect(
+      await project.ios.productBundleIdentifier(BuildInfo.release),
+      'com.example.helloFlutter',
+    );
+    expect(
+      await project.ios.productBundleIdentifier(null),
+      'com.example.helloFlutter',
     );
     expect(
         project.android.applicationId,
+        'com.example.hello_flutter',
+    );
+    expect(
+        project.linux.applicationId,
         'com.example.hello_flutter',
     );
 
@@ -815,7 +1210,7 @@ void main() {
     await runner.run(<String>['create', '--template=app', '--no-pub', '--org', 'abc^*.1#@', tmpProjectDir]);
     project = FlutterProject.fromDirectory(globals.fs.directory(tmpProjectDir));
     expect(
-        await project.ios.productBundleIdentifier,
+        await project.ios.productBundleIdentifier(BuildInfo.debug),
         'abc.1.testAbc',
     );
     expect(
@@ -827,16 +1222,21 @@ void main() {
     await runner.run(<String>['create', '--template=app', '--no-pub', '--org', '#+^%', tmpProjectDir]);
     project = FlutterProject.fromDirectory(globals.fs.directory(tmpProjectDir));
     expect(
-        await project.ios.productBundleIdentifier,
+        await project.ios.productBundleIdentifier(BuildInfo.debug),
         'flutterProject.untitled',
     );
     expect(
         project.android.applicationId,
         'flutter_project.untitled',
     );
+    expect(
+        project.linux.applicationId,
+        'flutter_project.untitled',
+    );
   }, overrides: <Type, Generator>{
     FlutterVersion: () => mockFlutterVersion,
     Platform: _kNoColorTerminalPlatform,
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
   });
 
   testUsingContext('can re-gen default template over existing project', () async {
@@ -850,7 +1250,7 @@ void main() {
     await runner.run(<String>['create', '--no-pub', projectDir.path]);
 
     final String metadata = globals.fs.file(globals.fs.path.join(projectDir.path, '.metadata')).readAsStringSync();
-    expect(metadata, contains('project_type: app\n'));
+    expect(LineSplitter.split(metadata), contains('project_type: app'));
   });
 
   testUsingContext('can re-gen default template over existing app project with no metadta and detect the type', () async {
@@ -867,7 +1267,7 @@ void main() {
     await runner.run(<String>['create', '--no-pub', projectDir.path]);
 
     final String metadata = globals.fs.file(globals.fs.path.join(projectDir.path, '.metadata')).readAsStringSync();
-    expect(metadata, contains('project_type: app\n'));
+    expect(LineSplitter.split(metadata), contains('project_type: app'));
   });
 
   testUsingContext('can re-gen app template over existing app project and detect the type', () async {
@@ -881,7 +1281,7 @@ void main() {
     await runner.run(<String>['create', '--no-pub', projectDir.path]);
 
     final String metadata = globals.fs.file(globals.fs.path.join(projectDir.path, '.metadata')).readAsStringSync();
-    expect(metadata, contains('project_type: app\n'));
+    expect(LineSplitter.split(metadata), contains('project_type: app'));
   });
 
   testUsingContext('can re-gen template over existing module project and detect the type', () async {
@@ -895,7 +1295,7 @@ void main() {
     await runner.run(<String>['create', '--no-pub', projectDir.path]);
 
     final String metadata = globals.fs.file(globals.fs.path.join(projectDir.path, '.metadata')).readAsStringSync();
-    expect(metadata, contains('project_type: module\n'));
+    expect(LineSplitter.split(metadata), contains('project_type: module'));
   });
 
   testUsingContext('can re-gen default template over existing plugin project and detect the type', () async {
@@ -909,7 +1309,7 @@ void main() {
     await runner.run(<String>['create', '--no-pub', projectDir.path]);
 
     final String metadata = globals.fs.file(globals.fs.path.join(projectDir.path, '.metadata')).readAsStringSync();
-    expect(metadata, contains('project_type: plugin'));
+    expect(LineSplitter.split(metadata), contains('project_type: plugin'));
   });
 
   testUsingContext('can re-gen default template over existing package project and detect the type', () async {
@@ -923,7 +1323,7 @@ void main() {
     await runner.run(<String>['create', '--no-pub', projectDir.path]);
 
     final String metadata = globals.fs.file(globals.fs.path.join(projectDir.path, '.metadata')).readAsStringSync();
-    expect(metadata, contains('project_type: package'));
+    expect(LineSplitter.split(metadata), contains('project_type: package'));
   });
 
   testUsingContext('can re-gen module .android/ folder, reusing custom org', () async {
@@ -941,7 +1341,14 @@ void main() {
       ],
     );
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('can re-gen module .ios/ folder, reusing custom org', () async {
@@ -954,11 +1361,18 @@ void main() {
     await _createProject(projectDir, <String>[], <String>[]);
     final FlutterProject project = FlutterProject.fromDirectory(projectDir);
     expect(
-      await project.ios.productBundleIdentifier,
+      await project.ios.productBundleIdentifier(BuildInfo.debug),
       'com.bar.foo.flutterProject',
     );
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext('can re-gen app android/ folder, reusing custom org', () async {
@@ -996,7 +1410,7 @@ void main() {
     await _createProject(projectDir, <String>['--no-pub'], <String>[]);
     final FlutterProject project = FlutterProject.fromDirectory(projectDir);
     expect(
-      await project.ios.productBundleIdentifier,
+      await project.ios.productBundleIdentifier(BuildInfo.debug),
       'com.bar.foo.flutterProject',
     );
   });
@@ -1010,6 +1424,7 @@ void main() {
         '--org', 'com.bar.foo',
         '-i', 'objc',
         '-a', 'java',
+        '--platforms', 'ios,android'
       ],
       <String>[],
     );
@@ -1017,7 +1432,7 @@ void main() {
     projectDir.childDirectory('ios').deleteSync(recursive: true);
     await _createProject(
       projectDir,
-      <String>['--no-pub', '--template=plugin', '-i', 'objc', '-a', 'java'],
+      <String>['--no-pub', '--template=plugin', '-i', 'objc', '-a', 'java', '--platforms', 'ios,android'],
       <String>[
         'example/android/app/src/main/java/com/bar/foo/flutter_project_example/MainActivity.java',
         'ios/Classes/FlutterProjectPlugin.h',
@@ -1029,7 +1444,7 @@ void main() {
     );
     final FlutterProject project = FlutterProject.fromDirectory(projectDir);
     expect(
-      await project.example.ios.productBundleIdentifier,
+      await project.example.ios.productBundleIdentifier(BuildInfo.debug),
       'com.bar.foo.flutterProjectExample',
     );
   });
@@ -1113,7 +1528,14 @@ void main() {
       ],
     );
   }, overrides: <Type, Generator>{
-    Pub: () => const Pub(),
+    Pub: () => Pub(
+      fileSystem: globals.fs,
+      logger: globals.logger,
+      processManager: globals.processManager,
+      usage: globals.flutterUsage,
+      botDetector: globals.botDetector,
+      platform: globals.platform,
+    ),
   });
 
   testUsingContext(
@@ -1130,7 +1552,14 @@ void main() {
     },
     overrides: <Type, Generator>{
       ProcessManager: () => loggingProcessManager,
-      Pub: () => const Pub(),
+      Pub: () => Pub(
+        fileSystem: globals.fs,
+        logger: globals.logger,
+        processManager: globals.processManager,
+        usage: globals.flutterUsage,
+        botDetector: globals.botDetector,
+        platform: globals.platform,
+      ),
     },
   );
 
@@ -1148,7 +1577,14 @@ void main() {
     },
     overrides: <Type, Generator>{
       ProcessManager: () => loggingProcessManager,
-      Pub: () => const Pub(),
+      Pub: () => Pub(
+        fileSystem: globals.fs,
+        logger: globals.logger,
+        processManager: globals.processManager,
+        usage: globals.flutterUsage,
+        botDetector: globals.botDetector,
+        platform: globals.platform,
+      ),
     },
   );
 
@@ -1182,12 +1618,34 @@ void main() {
 
     await runner.run(args);
     final File expectedFile = globals.fs.file(outputFile);
-    expect(expectedFile.existsSync(), isTrue);
+    expect(expectedFile, exists);
     expect(expectedFile.readAsStringSync(), equals(samplesIndexJson));
   }, overrides: <Type, Generator>{
     HttpClientFactory: () =>
         () => MockHttpClient(200, result: samplesIndexJson),
   });
+
+  testUsingContext('Throws tool exit on empty samples index', () async {
+    final String outputFile = globals.fs.path.join(tempDir.path, 'flutter_samples.json');
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    final List<String> args = <String>[
+      'create',
+      '--list-samples',
+      outputFile,
+    ];
+
+    await expectLater(
+      runner.run(args),
+      throwsToolExit(
+        exitCode: 2,
+        message: 'Unable to download samples',
+    ));
+  }, overrides: <Type, Generator>{
+    HttpClientFactory: () =>
+        () => MockHttpClient(200, result: ''),
+  });
+
   testUsingContext('provides an error to the user if samples json download fails', () async {
     final String outputFile = globals.fs.path.join(tempDir.path, 'flutter_samples.json');
     final CreateCommand command = CreateCommand();
@@ -1199,10 +1657,687 @@ void main() {
     ];
 
     await expectLater(runner.run(args), throwsToolExit(exitCode: 2, message: 'Failed to write samples'));
-    expect(globals.fs.file(outputFile).existsSync(), isFalse);
+    expect(globals.fs.file(outputFile), isNot(exists));
   }, overrides: <Type, Generator>{
     HttpClientFactory: () =>
         () => MockHttpClient(404, result: 'not found'),
+  });
+
+  testUsingContext('plugin does not support any platform by default', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+
+    expect(projectDir.childDirectory('ios'), isNot(exists));
+    expect(projectDir.childDirectory('android'), isNot(exists));
+    expect(projectDir.childDirectory('web'), isNot(exists));
+    expect(projectDir.childDirectory('linux'), isNot(exists));
+    expect(projectDir.childDirectory('windows'), isNot(exists));
+    expect(projectDir.childDirectory('macos'), isNot(exists));
+
+    expect(projectDir.childDirectory('example').childDirectory('ios'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('android'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('web'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('linux'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('windows'),
+        isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('macos'),
+        isNot(exists));
+    validatePubspecForPlugin(projectDir: projectDir.absolute.path, expectedPlatforms: <String>[
+      'some_platform'
+    ], pluginClass: 'somePluginClass',
+    unexpectedPlatforms: <String>[ 'ios', 'android', 'web', 'linux', 'windows', 'macos']);
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: false),
+  });
+
+  testUsingContext('plugin supports ios if requested', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=ios', projectDir.path]);
+
+    expect(projectDir.childDirectory('ios'), exists);
+    expect(projectDir.childDirectory('example').childDirectory('ios'), exists);
+    validatePubspecForPlugin(projectDir: projectDir.absolute.path, expectedPlatforms: <String>[
+      'ios',
+    ], pluginClass: 'FlutterProjectPlugin',
+    unexpectedPlatforms: <String>['some_platform']);
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: false),
+    Logger: () => logger,
+  });
+
+  testUsingContext('plugin supports android if requested', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=android', projectDir.path]);
+
+    expect(projectDir.childDirectory('android'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('android'), exists);
+    validatePubspecForPlugin(projectDir: projectDir.absolute.path, expectedPlatforms: const <String>[
+      'android'
+    ], pluginClass: 'FlutterProjectPlugin',
+    unexpectedPlatforms: <String>['some_platform'],
+    androidIdentifier: 'com.example.flutter_project');
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: false),
+    Logger: () => logger,
+  });
+
+  testUsingContext('plugin supports web if requested', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=web', projectDir.path]);
+    expect(
+        projectDir.childDirectory('lib').childFile('flutter_project_web.dart'),
+        exists);
+    validatePubspecForPlugin(projectDir: projectDir.absolute.path, expectedPlatforms: const <String>[
+      'web'
+    ], pluginClass: 'FlutterProjectWeb',
+    unexpectedPlatforms: <String>['some_platform'],
+    androidIdentifier: 'com.example.flutter_project',
+    webFileName: 'flutter_project_web.dart');
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWebEnabled: true),
+    Logger: () => logger,
+  });
+
+  testUsingContext('plugin doe not support web if feature is not enabled', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=web', projectDir.path]);
+    expect(
+        projectDir.childDirectory('lib').childFile('flutter_project_web.dart'),
+        isNot(exists));
+    validatePubspecForPlugin(projectDir: projectDir.absolute.path, expectedPlatforms: const <String>[
+      'some_platform'
+    ], pluginClass: 'somePluginClass',
+    unexpectedPlatforms: <String>['web']);
+    expect(logger.errorText, contains(_kNoPlatformsMessage));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWebEnabled: false),
+    Logger: () => logger,
+  });
+
+  testUsingContext('create an empty plugin, then add ios', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=ios', projectDir.path]);
+
+    expect(projectDir.childDirectory('ios'), exists);
+    expect(projectDir.childDirectory('example').childDirectory('ios'), exists);
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: false),
+  });
+
+  testUsingContext('create an empty plugin, then add android', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=android', projectDir.path]);
+
+    expect(projectDir.childDirectory('android'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('android'), exists);
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: false),
+  });
+
+  testUsingContext('create an empty plugin, then add linux', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=linux', projectDir.path]);
+
+    expect(projectDir.childDirectory('linux'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('linux'), exists);
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
+  });
+
+  testUsingContext('create an empty plugin, then add macos', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=macos', projectDir.path]);
+
+    expect(projectDir.childDirectory('macos'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('macos'), exists);
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isMacOSEnabled: true),
+  });
+
+  testUsingContext('create an empty plugin, then add windows', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=windows', projectDir.path]);
+
+    expect(projectDir.childDirectory('windows'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('windows'), exists);
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWindowsEnabled: true),
+  });
+
+  testUsingContext('create an empty plugin, then add web', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=web', projectDir.path]);
+
+    expect(
+        projectDir.childDirectory('lib').childFile('flutter_project_web.dart'),
+        exists);
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWebEnabled: true),
+  });
+
+  testUsingContext('create a plugin with ios, then add macos', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=ios', projectDir.path]);
+    expect(projectDir.childDirectory('ios'), exists);
+    expect(projectDir.childDirectory('example').childDirectory('ios'), exists);
+    validatePubspecForPlugin(projectDir: projectDir.absolute.path, expectedPlatforms: const <String>[
+      'ios',
+    ], pluginClass: 'FlutterProjectPlugin',
+    unexpectedPlatforms: <String>['some_platform']);
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=macos', projectDir.path]);
+    expect(projectDir.childDirectory('macos'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('macos'), exists);
+    expect(projectDir.childDirectory('ios'), exists);
+    expect(projectDir.childDirectory('example').childDirectory('ios'), exists);
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isMacOSEnabled: true),
+  });
+
+  testUsingContext('create a plugin with ios and android', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=ios,android', projectDir.path]);
+    expect(projectDir.childDirectory('ios'), exists);
+    expect(projectDir.childDirectory('example').childDirectory('ios'), exists);
+
+    expect(projectDir.childDirectory('android'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('android'), exists);
+    expect(projectDir.childDirectory('ios'), exists);
+    expect(projectDir.childDirectory('example').childDirectory('ios'), exists);
+    validatePubspecForPlugin(projectDir: projectDir.absolute.path, expectedPlatforms: const <String>[
+      'ios', 'android'
+    ], pluginClass: 'FlutterProjectPlugin',
+    unexpectedPlatforms: <String>['some_platform'],
+    androidIdentifier: 'com.example.flutter_project');
+  });
+
+  testUsingContext('create a module with --platforms throws error.', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await expectLater(
+      runner.run(<String>['create', '--no-pub', '--template=module', '--platforms=ios', projectDir.path])
+      , throwsToolExit(message: 'The "--platforms" argument is not supported', exitCode:2));
+  });
+
+  testUsingContext('create a package with --platforms throws error.', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await expectLater(
+      runner.run(<String>['create', '--no-pub', '--template=package', '--platforms=ios', projectDir.path])
+      , throwsToolExit(message: 'The "--platforms" argument is not supported', exitCode: 2));
+  });
+
+  testUsingContext('create a plugin with android, delete then re-create folders', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=android', projectDir.path]);
+    expect(projectDir.childDirectory('android'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('android'), exists);
+
+    globals.fs.file(globals.fs.path.join(projectDir.path, 'android')).deleteSync(recursive: true);
+    globals.fs.file(globals.fs.path.join(projectDir.path, 'example/android')).deleteSync(recursive: true);
+    expect(projectDir.childDirectory('android'), isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('android'),
+        isNot(exists));
+
+    await runner.run(<String>['create', '--no-pub', projectDir.path]);
+
+    expect(projectDir.childDirectory('android'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('android'), exists);
+  });
+
+  testUsingContext('create a plugin with android, delete then re-create folders while also adding windows', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=android', projectDir.path]);
+    expect(projectDir.childDirectory('android'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('android'), exists);
+
+    globals.fs.file(globals.fs.path.join(projectDir.path, 'android')).deleteSync(recursive: true);
+    globals.fs.file(globals.fs.path.join(projectDir.path, 'example/android')).deleteSync(recursive: true);
+    expect(projectDir.childDirectory('android'), isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('android'),
+        isNot(exists));
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=windows', projectDir.path]);
+
+    expect(projectDir.childDirectory('android'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('android'), exists);
+    expect(projectDir.childDirectory('windows'), exists);
+    expect(
+        projectDir.childDirectory('example').childDirectory('windows'), exists);
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWindowsEnabled: true),
+  });
+
+  testUsingContext('flutter create . on and existing plugin does not add android folders if android is not supported in pubspec', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=ios', projectDir.path]);
+
+    await runner.run(<String>['create', '--no-pub', projectDir.path]);
+    expect(projectDir.childDirectory('android'), isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('android'), isNot(exists));
+  });
+
+  testUsingContext('flutter create . on and existing plugin does not add windows folder even feature is enabled', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=android', projectDir.path]);
+
+    await runner.run(<String>['create', '--no-pub', projectDir.path]);
+    expect(projectDir.childDirectory('windows'), isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('windows'), isNot(exists));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWindowsEnabled: true),
+  });
+
+  testUsingContext('flutter create . on and existing plugin does not add linux folder even feature is enabled', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=android', projectDir.path]);
+
+    await runner.run(<String>['create', '--no-pub', projectDir.path]);
+    expect(projectDir.childDirectory('linux'), isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('linux'), isNot(exists));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
+  });
+
+  testUsingContext('flutter create . on and existing plugin does not add web files even feature is enabled', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=android', projectDir.path]);
+
+    await runner.run(<String>['create', '--no-pub', projectDir.path]);
+    expect(projectDir.childDirectory('lib').childFile('flutter_project_web.dart'), isNot(exists));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWebEnabled: true),
+  });
+
+  testUsingContext('flutter create . on and existing plugin does not add macos folder even feature is enabled', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=android', projectDir.path]);
+
+    await runner.run(<String>['create', '--no-pub', projectDir.path]);
+    expect(projectDir.childDirectory('macos'), isNot(exists));
+    expect(projectDir.childDirectory('example').childDirectory('macos'), isNot(exists));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isMacOSEnabled: true),
+  });
+
+  testUsingContext('flutter create -t plugin in an empty folder should not show pubspec.yaml updating suggestion', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=android', projectDir.path]);
+    final String projectDirPath = globals.fs.path.normalize(projectDir.absolute.path);
+    final String relativePluginPath = globals.fs.path.normalize(globals.fs.path.relative(projectDirPath));
+    expect(logger.statusText, isNot(contains('You need to update $relativePluginPath/pubspec.yaml to support android.\n')));
+  }, overrides: <Type, Generator> {
+    Logger: () => logger,
+  });
+
+  testUsingContext('flutter create -t plugin in an existing plugin should show pubspec.yaml updating suggestion', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    final String projectDirPath = globals.fs.path.normalize(projectDir.absolute.path);
+    final String relativePluginPath = globals.fs.path.normalize(globals.fs.path.relative(projectDirPath));
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=ios', projectDir.path]);
+    expect(logger.statusText, isNot(contains('You need to update $relativePluginPath/pubspec.yaml to support ios.\n')));
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=android', projectDir.path]);
+    expect(logger.statusText, contains('You need to update $relativePluginPath/pubspec.yaml to support android.\n'));
+  }, overrides: <Type, Generator> {
+    Logger: () => logger,
+  });
+
+  testUsingContext('newly created plugin has min flutter sdk version as 1.20.0', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    final String rawPubspec = await projectDir.childFile('pubspec.yaml').readAsString();
+    final Pubspec pubspec = Pubspec.parse(rawPubspec);
+    final Map<String, VersionConstraint> env = pubspec.environment;
+    expect(env['flutter'].allows(Version(1, 20, 0)), true);
+    expect(env['flutter'].allows(Version(1, 19, 0)), false);
+  });
+
+  testUsingContext('default app uses Android SDK 30', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', projectDir.path]);
+
+    expect(globals.fs.isFileSync('${projectDir.path}/android/app/build.gradle'), true);
+
+    final String buildContent = await globals.fs.file(projectDir.path + '/android/app/build.gradle').readAsString();
+
+    expect(buildContent.contains('compileSdkVersion 30'), true);
+    expect(buildContent.contains('targetSdkVersion 30'), true);
+  });
+
+  testUsingContext('Linux plugins handle partially camel-case project names correctly', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    const String projectName = 'foo_BarBaz';
+    final Directory projectDir = tempDir.childDirectory(projectName);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=linux', '--skip-name-checks', projectDir.path]);
+    final Directory platformDir = projectDir.childDirectory('linux');
+
+    const String classFilenameBase = 'foo_bar_baz_plugin';
+    const String headerName = '$classFilenameBase.h';
+    final File headerFile = platformDir
+        .childDirectory('include')
+        .childDirectory(projectName)
+        .childFile(headerName);
+    final File implFile = platformDir.childFile('$classFilenameBase.cc');
+    // Ensure that the files have the right names.
+    expect(headerFile, exists);
+    expect(implFile, exists);
+    // Ensure that the include is correct.
+    expect(implFile.readAsStringSync(), contains(headerName));
+    // Ensure that the CMake file has the right target and source values.
+    final String cmakeContents = platformDir.childFile('CMakeLists.txt').readAsStringSync();
+    expect(cmakeContents, contains('"$classFilenameBase.cc"'));
+    expect(cmakeContents, contains('set(PLUGIN_NAME "foo_BarBaz_plugin")'));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
+  });
+
+  testUsingContext('Windows plugins handle partially camel-case project names correctly', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    const String projectName = 'foo_BarBaz';
+    final Directory projectDir = tempDir.childDirectory(projectName);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=windows', '--skip-name-checks', projectDir.path]);
+    final Directory platformDir = projectDir.childDirectory('windows');
+
+    const String classFilenameBase = 'foo_bar_baz_plugin';
+    const String headerName = '$classFilenameBase.h';
+    final File headerFile = platformDir
+        .childDirectory('include')
+        .childDirectory(projectName)
+        .childFile(headerName);
+    final File implFile = platformDir.childFile('$classFilenameBase.cpp');
+    // Ensure that the files have the right names.
+    expect(headerFile, exists);
+    expect(implFile, exists);
+    // Ensure that the include is correct.
+    expect(implFile.readAsStringSync(), contains(headerName));
+    // Ensure that the plugin target name matches the post-processed version.
+    // Ensure that the CMake file has the right target and source values.
+    final String cmakeContents = platformDir.childFile('CMakeLists.txt').readAsStringSync();
+    expect(cmakeContents, contains('"$classFilenameBase.cpp"'));
+    expect(cmakeContents, contains('set(PLUGIN_NAME "foo_BarBaz_plugin")'));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWindowsEnabled: true),
+  });
+
+  testUsingContext('Linux plugins handle project names ending in _plugin correctly', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    const String projectName = 'foo_bar_plugin';
+    final Directory projectDir = tempDir.childDirectory(projectName);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=linux', projectDir.path]);
+    final Directory platformDir = projectDir.childDirectory('linux');
+
+    // If the project already ends in _plugin, it shouldn't be added again.
+    const String classFilenameBase = projectName;
+    const String headerName = '$classFilenameBase.h';
+    final File headerFile = platformDir
+        .childDirectory('include')
+        .childDirectory(projectName)
+        .childFile(headerName);
+    final File implFile = platformDir.childFile('$classFilenameBase.cc');
+    // Ensure that the files have the right names.
+    expect(headerFile, exists);
+    expect(implFile, exists);
+    // Ensure that the include is correct.
+    expect(implFile.readAsStringSync(), contains(headerName));
+    // Ensure that the CMake file has the right target and source values.
+    final String cmakeContents = platformDir.childFile('CMakeLists.txt').readAsStringSync();
+    expect(cmakeContents, contains('"$classFilenameBase.cc"'));
+    // The "_plugin_plugin" suffix is intentional; because the target names must
+    // be unique across the ecosystem, no canonicalization can be done,
+    // otherwise plugins called "foo_bar" and "foo_bar_plugin" would collide in
+    // builds.
+    expect(cmakeContents, contains('set(PLUGIN_NAME "foo_bar_plugin_plugin")'));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
+  });
+
+  testUsingContext('Windows plugins handle project names ending in _plugin correctly', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    const String projectName = 'foo_bar_plugin';
+    final Directory projectDir = tempDir.childDirectory(projectName);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=windows', projectDir.path]);
+    final Directory platformDir = projectDir.childDirectory('windows');
+
+    // If the project already ends in _plugin, it shouldn't be added again.
+    const String classFilenameBase = projectName;
+    const String headerName = '$classFilenameBase.h';
+    final File headerFile = platformDir
+        .childDirectory('include')
+        .childDirectory(projectName)
+        .childFile(headerName);
+    final File implFile = platformDir.childFile('$classFilenameBase.cpp');
+    // Ensure that the files have the right names.
+    expect(headerFile, exists);
+    expect(implFile, exists);
+    // Ensure that the include is correct.
+    expect(implFile.readAsStringSync(), contains(headerName));
+    // Ensure that the CMake file has the right target and source values.
+    final String cmakeContents = platformDir.childFile('CMakeLists.txt').readAsStringSync();
+    expect(cmakeContents, contains('"$classFilenameBase.cpp"'));
+    // The "_plugin_plugin" suffix is intentional; because the target names must
+    // be unique across the ecosystem, no canonicalization can be done,
+    // otherwise plugins called "foo_bar" and "foo_bar_plugin" would collide in
+    // builds.
+    expect(cmakeContents, contains('set(PLUGIN_NAME "foo_bar_plugin_plugin")'));
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isWindowsEnabled: true),
+  });
+
+  testUsingContext('created plugin supports no platforms should print `no platforms` message', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    expect(logger.errorText, contains(_kNoPlatformsMessage));
+    expect(logger.statusText, contains('To add platforms, run `flutter create -t plugin --platforms <platforms> .` under ${globals.fs.path.normalize(globals.fs.path.relative(projectDir.path))}.'));
+    expect(logger.statusText, contains('For more information, see https://flutter.dev/go/plugin-platforms.'));
+
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: false),
+    Logger: ()=> logger,
+  });
+
+  testUsingContext('created plugin with no --platforms flag should not print `no platforms` message if the existing plugin supports a platform.', () async {
+    Cache.flutterRoot = '../..';
+    when(mockFlutterVersion.frameworkRevision).thenReturn(frameworkRevision);
+    when(mockFlutterVersion.channel).thenReturn(frameworkChannel);
+
+    final CreateCommand command = CreateCommand();
+    final CommandRunner<void> runner = createTestCommandRunner(command);
+
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', '--platforms=ios', projectDir.path]);
+    await runner.run(<String>['create', '--no-pub', '--template=plugin', projectDir.path]);
+    expect(logger.errorText, isNot(contains(_kNoPlatformsMessage)));
+
+  }, overrides: <Type, Generator>{
+    FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: false),
+    Logger: () => logger,
   });
 }
 
@@ -1212,7 +2347,7 @@ Future<void> _createProject(
   List<String> expectedPaths, {
   List<String> unexpectedPaths = const <String>[],
 }) async {
-  Cache.flutterRoot = '../../..';
+  Cache.flutterRoot = '../..';
   final CreateCommand command = CreateCommand();
   final CommandRunner<void> runner = createTestCommandRunner(command);
   await runner.run(<String>[
@@ -1269,7 +2404,6 @@ Future<void> _ensureFlutterToolsSnapshot() async {
   }
 
   final List<String> snapshotArgs = <String>[
-    ...dartVmFlags,
     '--snapshot=$flutterToolsSnapshotPath',
     '--packages=$dotPackages',
     flutterToolsPath,
@@ -1313,13 +2447,12 @@ Future<void> _analyzeProject(String workingDir) async {
   ));
 
   final List<String> args = <String>[
-    ...dartVmFlags,
     flutterToolsSnapshotPath,
     'analyze',
   ];
 
   final ProcessResult exec = await Process.run(
-    '$dartSdkPath/bin/dart',
+    globals.artifacts.getArtifactPath(Artifact.engineDartBinary),
     args,
     workingDirectory: workingDir,
   );
@@ -1342,9 +2475,8 @@ Future<void> _runFlutterTest(Directory workingDir, { String target }) async {
   // While flutter test does get packages, it doesn't write version
   // files anymore.
   await Process.run(
-    '$dartSdkPath/bin/dart',
+    globals.artifacts.getArtifactPath(Artifact.engineDartBinary),
     <String>[
-      ...dartVmFlags,
       flutterToolsSnapshotPath,
       'packages',
       'get',
@@ -1353,7 +2485,6 @@ Future<void> _runFlutterTest(Directory workingDir, { String target }) async {
   );
 
   final List<String> args = <String>[
-    ...dartVmFlags,
     flutterToolsSnapshotPath,
     'test',
     '--no-color',
@@ -1361,7 +2492,7 @@ Future<void> _runFlutterTest(Directory workingDir, { String target }) async {
   ];
 
   final ProcessResult exec = await Process.run(
-    '$dartSdkPath/bin/dart',
+    globals.artifacts.getArtifactPath(Artifact.engineDartBinary),
     args,
     workingDirectory: workingDir.path,
   );

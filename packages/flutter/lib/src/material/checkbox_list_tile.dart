@@ -10,6 +10,7 @@ import 'theme.dart';
 import 'theme_data.dart';
 
 // Examples can assume:
+// // @dart = 2.9
 // void setState(VoidCallback fn) { }
 
 /// A [ListTile] with a [Checkbox]. In other words, a checkbox with a label.
@@ -17,10 +18,12 @@ import 'theme_data.dart';
 /// The entire list tile is interactive: tapping anywhere in the tile toggles
 /// the checkbox.
 ///
+/// {@youtube 560 315 https://www.youtube.com/watch?v=RkSqPAn9szs}
+///
 /// The [value], [onChanged], [activeColor] and [checkColor] properties of this widget are
 /// identical to the similarly-named properties on the [Checkbox] widget.
 ///
-/// The [title], [subtitle], [isThreeLine], and [dense] properties are like
+/// The [title], [subtitle], [isThreeLine], [dense], and [contentPadding] properties are like
 /// those of the same name on [ListTile].
 ///
 /// The [selected] property on this widget is similar to the [ListTile.selected]
@@ -37,7 +40,7 @@ import 'theme_data.dart';
 /// To show the [CheckboxListTile] as disabled, pass null as the [onChanged]
 /// callback.
 ///
-/// {@tool sample --template=stateful_widget_scaffold_center}
+/// {@tool dartpad --template=stateful_widget_scaffold_center_no_null_safety}
 ///
 /// ![CheckboxListTile sample](https://flutter.github.io/assets-for-api-docs/assets/material/checkbox_list_tile.png)
 ///
@@ -82,7 +85,7 @@ import 'theme_data.dart';
 /// into one. Therefore, it may be necessary to create a custom radio tile
 /// widget to accommodate similar use cases.
 ///
-/// {@tool sample --template=stateful_widget_scaffold_center}
+/// {@tool sample --template=stateful_widget_scaffold_center_no_null_safety}
 ///
 /// ![Checkbox list tile semantics sample](https://flutter.github.io/assets-for-api-docs/assets/material/checkbox_list_tile_semantics.png)
 ///
@@ -166,7 +169,7 @@ import 'theme_data.dart';
 /// combining [Checkbox] with other widgets, such as [Text], [Padding] and
 /// [InkWell].
 ///
-/// {@tool sample --template=stateful_widget_scaffold_center}
+/// {@tool dartpad --template=stateful_widget_scaffold_center_no_null_safety}
 ///
 /// ![Custom checkbox list tile sample](https://flutter.github.io/assets-for-api-docs/assets/material/checkbox_list_tile_custom.png)
 ///
@@ -248,17 +251,19 @@ class CheckboxListTile extends StatelessWidget {
   ///
   /// The following arguments are required:
   ///
-  /// * [value], which determines whether the checkbox is checked, and must not
-  ///   be null.
-  ///
+  /// * [value], which determines whether the checkbox is checked. The [value]
+  ///   can only be null if [tristate] is true.
   /// * [onChanged], which is called when the value of the checkbox should
   ///   change. It can be set to null to disable the checkbox.
+  ///
+  /// The value of [tristate] must not be null.
   const CheckboxListTile({
-    Key key,
-    @required this.value,
-    @required this.onChanged,
+    Key? key,
+    required this.value,
+    required this.onChanged,
     this.activeColor,
     this.checkColor,
+    this.tileColor,
     this.title,
     this.subtitle,
     this.isThreeLine = false,
@@ -266,17 +271,22 @@ class CheckboxListTile extends StatelessWidget {
     this.secondary,
     this.selected = false,
     this.controlAffinity = ListTileControlAffinity.platform,
-  }) : assert(value != null),
+    this.autofocus = false,
+    this.contentPadding,
+    this.tristate = false,
+    this.shape,
+    this.selectedTileColor,
+  }) : assert(tristate != null),
+       assert(tristate || value != null),
        assert(isThreeLine != null),
        assert(!isThreeLine || subtitle != null),
        assert(selected != null),
        assert(controlAffinity != null),
+       assert(autofocus != null),
        super(key: key);
 
   /// Whether this checkbox is checked.
-  ///
-  /// This property must not be null.
-  final bool value;
+  final bool? value;
 
   /// Called when the value of the checkbox should change.
   ///
@@ -301,32 +311,35 @@ class CheckboxListTile extends StatelessWidget {
   ///   title: Text('Throw away your shot'),
   /// )
   /// ```
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool?>? onChanged;
 
   /// The color to use when this checkbox is checked.
   ///
   /// Defaults to accent color of the current [Theme].
-  final Color activeColor;
+  final Color? activeColor;
 
   /// The color to use for the check icon when this checkbox is checked.
   ///
   /// Defaults to Color(0xFFFFFFFF).
-  final Color checkColor;
+  final Color? checkColor;
+
+  /// {@macro flutter.material.ListTile.tileColor}
+  final Color? tileColor;
 
   /// The primary content of the list tile.
   ///
   /// Typically a [Text] widget.
-  final Widget title;
+  final Widget? title;
 
   /// Additional content displayed below the title.
   ///
   /// Typically a [Text] widget.
-  final Widget subtitle;
+  final Widget? subtitle;
 
   /// A widget to display on the opposite side of the tile from the checkbox.
   ///
   /// Typically an [Icon] widget.
-  final Widget secondary;
+  final Widget? secondary;
 
   /// Whether this list tile is intended to display three lines of text.
   ///
@@ -337,7 +350,7 @@ class CheckboxListTile extends StatelessWidget {
   /// Whether this list tile is part of a vertically dense list.
   ///
   /// If this property is null then its value is based on [ListTileTheme.dense].
-  final bool dense;
+  final bool? dense;
 
   /// Whether to render icons and text in the [activeColor].
   ///
@@ -351,6 +364,50 @@ class CheckboxListTile extends StatelessWidget {
   /// Where to place the control relative to the text.
   final ListTileControlAffinity controlAffinity;
 
+  /// {@macro flutter.widgets.Focus.autofocus}
+  final bool autofocus;
+
+  /// Defines insets surrounding the tile's contents.
+  ///
+  /// This value will surround the [Checkbox], [title], [subtitle], and [secondary]
+  /// widgets in [CheckboxListTile].
+  ///
+  /// When the value is null, the `contentPadding` is `EdgeInsets.symmetric(horizontal: 16.0)`.
+  final EdgeInsetsGeometry? contentPadding;
+
+  /// If true the checkbox's [value] can be true, false, or null.
+  ///
+  /// Checkbox displays a dash when its value is null.
+  ///
+  /// When a tri-state checkbox ([tristate] is true) is tapped, its [onChanged]
+  /// callback will be applied to true if the current value is false, to null if
+  /// value is true, and to false if value is null (i.e. it cycles through false
+  /// => true => null => false when tapped).
+  ///
+  /// If tristate is false (the default), [value] must not be null.
+  final bool tristate;
+
+  /// {@macro flutter.material.ListTileTheme.shape}
+  final ShapeBorder? shape;
+
+  /// If non-null, defines the background color when [CheckboxListTile.selected] is true.
+  final Color? selectedTileColor;
+
+  void _handleValueChange() {
+    assert(onChanged != null);
+    switch (value) {
+      case false:
+        onChanged!(true);
+        break;
+      case true:
+        onChanged!(tristate ? null : false);
+        break;
+      case null:
+        onChanged!(false);
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final Widget control = Checkbox(
@@ -359,8 +416,10 @@ class CheckboxListTile extends StatelessWidget {
       activeColor: activeColor,
       checkColor: checkColor,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      autofocus: autofocus,
+      tristate: tristate,
     );
-    Widget leading, trailing;
+    Widget? leading, trailing;
     switch (controlAffinity) {
       case ListTileControlAffinity.leading:
         leading = control;
@@ -383,8 +442,13 @@ class CheckboxListTile extends StatelessWidget {
           isThreeLine: isThreeLine,
           dense: dense,
           enabled: onChanged != null,
-          onTap: onChanged != null ? () { onChanged(!value); } : null,
+          onTap: onChanged != null ? _handleValueChange : null,
           selected: selected,
+          autofocus: autofocus,
+          contentPadding: contentPadding,
+          shape: shape,
+          selectedTileColor: selectedTileColor,
+          tileColor: tileColor,
         ),
       ),
     );

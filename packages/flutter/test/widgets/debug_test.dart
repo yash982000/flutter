@@ -17,7 +17,7 @@ void main() {
       direction: Axis.vertical,
       children: children
     );
-    FlutterError error;
+    late FlutterError error;
     try {
       debugChildrenHaveDuplicateKeys(widget, children);
     } on FlutterError catch (e) {
@@ -45,7 +45,7 @@ void main() {
       Container(key: key),
       Container(key: key),
     ];
-    FlutterError error;
+    late FlutterError error;
     try {
       debugItemsHaveDuplicateKeys(items);
     } on FlutterError catch (e) {
@@ -56,7 +56,7 @@ void main() {
         error.toStringDeep(),
         equalsIgnoringHashCodes(
           'FlutterError\n'
-          '   Duplicate key found: [<\'key\'>].\n'
+          "   Duplicate key found: [<'key'>].\n"
         ),
       );
     }
@@ -66,7 +66,7 @@ void main() {
     await tester.pumpWidget(
       Builder(
         builder: (BuildContext context) {
-          FlutterError error;
+          late FlutterError error;
           try {
             debugCheckHasTable(context);
           } on FlutterError catch (e) {
@@ -74,7 +74,7 @@ void main() {
           } finally {
             expect(error, isNotNull);
             expect(error.diagnostics.length, 4);
-            expect(error.diagnostics[2], isInstanceOf<DiagnosticsProperty<Element>>());
+            expect(error.diagnostics[2], isA<DiagnosticsProperty<Element>>());
             expect(
               error.toStringDeep(),
               equalsIgnoringHashCodes(
@@ -98,7 +98,7 @@ void main() {
     await tester.pumpWidget(
       Builder(
         builder: (BuildContext context) {
-          FlutterError error;
+          late FlutterError error;
           try {
             debugCheckHasMediaQuery(context);
           } on FlutterError catch (e) {
@@ -106,28 +106,34 @@ void main() {
           } finally {
             expect(error, isNotNull);
             expect(error.diagnostics.length, 5);
-            expect(error.diagnostics[2], isInstanceOf<DiagnosticsProperty<Element>>());
+            expect(error.diagnostics[2], isA<DiagnosticsProperty<Element>>());
             expect(error.diagnostics.last.level, DiagnosticLevel.hint);
             expect(
               error.diagnostics.last.toStringDeep(),
               equalsIgnoringHashCodes(
-                'Typically, the MediaQuery widget is introduced by the MaterialApp\n'
-                'or WidgetsApp widget at the top of your application widget tree.\n'
+                'No MediaQuery ancestor could be found starting from the context\n'
+                'that was passed to MediaQuery.of(). This can happen because you\n'
+                'have not added a WidgetsApp, CupertinoApp, or MaterialApp widget\n'
+                '(those widgets introduce a MediaQuery), or it can happen if the\n'
+                'context you use comes from a widget above those widgets.\n'
               ),
             );
             expect(
               error.toStringDeep(),
               equalsIgnoringHashCodes(
                 'FlutterError\n'
-                '   No MediaQuery widget found.\n'
+                '   No MediaQuery widget ancestor found.\n'
                 '   Builder widgets require a MediaQuery widget ancestor.\n'
                 '   The specific widget that could not find a MediaQuery ancestor\n'
                 '   was:\n'
                 '     Builder\n'
                 '   The ownership chain for the affected widget is: "Builder ←\n'
                 '     [root]"\n'
-                '   Typically, the MediaQuery widget is introduced by the MaterialApp\n'
-                '   or WidgetsApp widget at the top of your application widget tree.\n'
+                '   No MediaQuery ancestor could be found starting from the context\n'
+                '   that was passed to MediaQuery.of(). This can happen because you\n'
+                '   have not added a WidgetsApp, CupertinoApp, or MaterialApp widget\n'
+                '   (those widgets introduce a MediaQuery), or it can happen if the\n'
+                '   context you use comes from a widget above those widgets.\n'
               ),
             );
           }
@@ -139,15 +145,15 @@ void main() {
 
   test('debugWidgetBuilderValue control test', () {
     final Widget widget = Container();
-    FlutterError error;
+    FlutterError? error;
     try {
       debugWidgetBuilderValue(widget, null);
     } on FlutterError catch (e) {
       error = e;
     } finally {
       expect(error, isNotNull);
-      expect(error.diagnostics.length, 4);
-      expect(error.diagnostics[1], isInstanceOf<DiagnosticsProperty<Widget>>());
+      expect(error!.diagnostics.length, 4);
+      expect(error.diagnostics[1], isA<DiagnosticsProperty<Widget>>());
       expect(error.diagnostics[1].style, DiagnosticsTreeStyle.errorProperty);
       expect(
         error.diagnostics[1].toStringDeep(),
@@ -189,8 +195,8 @@ void main() {
       error = e;
     } finally {
       expect(error, isNotNull);
-      expect(error.diagnostics.length, 3);
-      expect(error.diagnostics[1], isInstanceOf<DiagnosticsProperty<Widget>>());
+      expect(error!.diagnostics.length, 3);
+      expect(error.diagnostics[1], isA<DiagnosticsProperty<Widget>>());
       expect(error.diagnostics[1].style, DiagnosticsTreeStyle.errorProperty);
       expect(
         error.diagnostics[1].toStringDeep(),
@@ -206,7 +212,7 @@ void main() {
           '   A build function returned context.widget.\n'
           '   The offending widget is:\n'
           '     Container\n'
-          '   Build functions must never return their BuildContext parameter\'s\n'
+          "   Build functions must never return their BuildContext parameter's\n"
           '   widget or a child that contains "context.widget". Doing so\n'
           '   introduces a loop in the widget tree that can cause the app to\n'
           '   crash.\n'
@@ -215,9 +221,36 @@ void main() {
     }
   });
 
+  testWidgets('debugCheckHasWidgetsLocalizations throws', (WidgetTester tester) async {
+    final GlobalKey noLocalizationsAvailable = GlobalKey();
+    final GlobalKey localizationsAvailable = GlobalKey();
+
+    await tester.pumpWidget(
+      Container(
+        key: noLocalizationsAvailable,
+        child: WidgetsApp(
+          builder: (BuildContext context, Widget? child) {
+            return Container(
+              key: localizationsAvailable,
+            );
+          },
+          color: const Color(0xFF4CAF50),
+        ),
+      ),
+    );
+
+    expect(() => debugCheckHasWidgetsLocalizations(noLocalizationsAvailable.currentContext!), throwsA(isAssertionError.having(
+      (AssertionError e) => e.message,
+      'message',
+      contains('No WidgetsLocalizations found'),
+    )));
+
+    expect(debugCheckHasWidgetsLocalizations(localizationsAvailable.currentContext!), isTrue);
+  });
+
   test('debugAssertAllWidgetVarsUnset', () {
     debugHighlightDeprecatedWidgets = true;
-    FlutterError error;
+    late FlutterError error;
     try {
       debugAssertAllWidgetVarsUnset('The value of a widget debug variable was changed by the test.');
     } on FlutterError catch (e) {

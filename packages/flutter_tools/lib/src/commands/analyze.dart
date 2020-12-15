@@ -2,16 +2,34 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
+import 'package:meta/meta.dart';
+import 'package:process/process.dart';
 
+import '../artifacts.dart';
 import '../base/file_system.dart';
-import '../globals.dart' as globals;
+import '../base/logger.dart';
+import '../base/platform.dart';
+import '../base/terminal.dart';
 import '../runner/flutter_command.dart';
 import 'analyze_continuously.dart';
 import 'analyze_once.dart';
 
 class AnalyzeCommand extends FlutterCommand {
-  AnalyzeCommand({bool verboseHelp = false, this.workingDirectory}) {
+  AnalyzeCommand({
+    bool verboseHelp = false,
+    this.workingDirectory,
+    @required FileSystem fileSystem,
+    @required Platform platform,
+    @required Terminal terminal,
+    @required Logger logger,
+    @required ProcessManager processManager,
+    @required Artifacts artifacts,
+  }) : _artifacts = artifacts,
+       _fileSystem = fileSystem,
+       _processManager = processManager,
+       _logger = logger,
+       _terminal = terminal,
+       _platform = platform {
     argParser.addFlag('flutter-repo',
         negatable: false,
         help: 'Include all the examples and tests from the Flutter repository.',
@@ -54,10 +72,25 @@ class AnalyzeCommand extends FlutterCommand {
         help: 'When analyzing the flutter repository, display the number of '
               'files that will be analyzed.\n'
               'Ignored if --watch is specified.');
+    argParser.addFlag('fatal-infos',
+        negatable: true,
+        help: 'Treat info level issues as fatal.',
+        defaultsTo: true);
+    argParser.addFlag('fatal-warnings',
+        negatable: true,
+        help: 'Treat warning level issues as fatal.',
+        defaultsTo: true);
   }
 
   /// The working directory for testing analysis using dartanalyzer.
   final Directory workingDirectory;
+
+  final Artifacts _artifacts;
+  final FileSystem _fileSystem;
+  final Logger _logger;
+  final Terminal _terminal;
+  final ProcessManager _processManager;
+  final Platform _platform;
 
   @override
   String get name => 'analyze';
@@ -73,7 +106,7 @@ class AnalyzeCommand extends FlutterCommand {
     }
 
     // Or we're not in a project directory.
-    if (!globals.fs.file('pubspec.yaml').existsSync()) {
+    if (!_fileSystem.file('pubspec.yaml').existsSync()) {
       return false;
     }
 
@@ -87,6 +120,12 @@ class AnalyzeCommand extends FlutterCommand {
         argResults,
         runner.getRepoRoots(),
         runner.getRepoPackages(),
+        fileSystem: _fileSystem,
+        logger: _logger,
+        platform: _platform,
+        processManager: _processManager,
+        terminal: _terminal,
+        artifacts: _artifacts,
       ).analyze();
     } else {
       await AnalyzeOnce(
@@ -94,6 +133,12 @@ class AnalyzeCommand extends FlutterCommand {
         runner.getRepoRoots(),
         runner.getRepoPackages(),
         workingDirectory: workingDirectory,
+        fileSystem: _fileSystem,
+        logger: _logger,
+        platform: _platform,
+        processManager: _processManager,
+        terminal: _terminal,
+        artifacts: _artifacts,
       ).analyze();
     }
     return FlutterCommandResult.success();
