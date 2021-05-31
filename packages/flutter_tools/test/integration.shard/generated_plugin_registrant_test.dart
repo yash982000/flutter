@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.8
+
 import 'dart:async';
 
 import 'package:args/command_runner.dart';
@@ -12,11 +14,11 @@ import 'package:flutter_tools/src/base/io.dart';
 import 'package:flutter_tools/src/cache.dart';
 import 'package:flutter_tools/src/commands/create.dart';
 import 'package:flutter_tools/src/dart/pub.dart';
-import 'package:flutter_tools/src/globals.dart' as globals;
+import 'package:flutter_tools/src/globals_null_migrated.dart' as globals;
 
 import '../src/common.dart';
 import '../src/context.dart';
-import '../src/testbed.dart';
+import '../src/test_flutter_command_runner.dart';
 
 void main() {
   Directory tempDir;
@@ -46,7 +48,7 @@ void main() {
     // We need to add a dependency with web support to trigger
     // the generated_plugin_registrant generation.
     await _addDependency(projectDir, 'shared_preferences',
-        version: '^0.5.12+4');
+        version: '^2.0.0');
     await _analyzeProject(projectDir);
 
     expect(
@@ -231,7 +233,7 @@ Future<void> _analyzeProject(Directory workingDir) async {
   ];
 
   final ProcessResult exec = await Process.run(
-    globals.artifacts.getArtifactPath(Artifact.engineDartBinary),
+    globals.artifacts.getHostArtifact(HostArtifact.engineDartBinary).path,
     args,
     workingDirectory: workingDir.path,
   );

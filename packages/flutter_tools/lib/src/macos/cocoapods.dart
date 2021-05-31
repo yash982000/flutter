@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.8
+
 import 'package:file/file.dart';
 import 'package:meta/meta.dart';
 import 'package:process/process.dart';
@@ -69,6 +71,9 @@ enum CocoaPodsStatus {
   brokenInstall,
 }
 
+const Version cocoaPodsMinimumVersion = Version.withText(1, 9, 0, '1.9.0');
+const Version cocoaPodsRecommendedVersion = Version.withText(1, 10, 0, '1.10.0');
+
 /// Cocoapods is a dependency management solution for iOS and macOS applications.
 ///
 /// Cocoapods is generally installed via ruby gems and interacted with via
@@ -109,9 +114,6 @@ class CocoaPods {
 
   Future<String> _versionText;
 
-  String get cocoaPodsMinimumVersion => '1.9.0';
-  String get cocoaPodsRecommendedVersion => '1.10.0';
-
   Future<bool> get isInstalled =>
     _processUtils.exitsHappy(<String>['which', 'pod']);
 
@@ -140,10 +142,10 @@ class CocoaPods {
       if (installedVersion == null) {
         return CocoaPodsStatus.unknownVersion;
       }
-      if (installedVersion < Version.parse(cocoaPodsMinimumVersion)) {
+      if (installedVersion < cocoaPodsMinimumVersion) {
         return CocoaPodsStatus.belowMinimumVersion;
       }
-      if (installedVersion < Version.parse(cocoaPodsRecommendedVersion)) {
+      if (installedVersion < cocoaPodsRecommendedVersion) {
         return CocoaPodsStatus.belowRecommendedVersion;
       }
       return CocoaPodsStatus.recommended;
@@ -160,6 +162,7 @@ class CocoaPods {
     if (!xcodeProject.podfile.existsSync()) {
       throwToolExit('Podfile missing');
     }
+    _warnIfPodfileOutOfDate(xcodeProject);
     bool podsProcessed = false;
     if (_shouldRunPodInstall(xcodeProject, dependenciesChanged)) {
       if (!await _checkPodCondition()) {
@@ -168,7 +171,6 @@ class CocoaPods {
       await _runPodInstall(xcodeProject, buildMode);
       podsProcessed = true;
     }
-    _warnIfPodfileOutOfDate(xcodeProject);
     return podsProcessed;
   }
 
@@ -246,6 +248,7 @@ class CocoaPods {
     } else {
       final bool isSwift = (await _xcodeProjectInterpreter.getBuildSettings(
         runnerProject.path,
+        buildContext: const XcodeProjectBuildContext(),
       )).containsKey('SWIFT_VERSION');
       podfileTemplateName = isSwift ? 'Podfile-ios-swift' : 'Podfile-ios-objc';
     }
@@ -272,9 +275,10 @@ class CocoaPods {
     final File file = xcodeProject.xcodeConfigFor(mode);
     if (file.existsSync()) {
       final String content = file.readAsStringSync();
-      final String include = '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.${mode
-          .toLowerCase()}.xcconfig"';
-      if (!content.contains(include)) {
+      final String includeFile = 'Pods/Target Support Files/Pods-Runner/Pods-Runner.${mode
+          .toLowerCase()}.xcconfig';
+      final String include = '#include? "$includeFile"';
+      if (!content.contains(includeFile)) {
         file.writeAsStringSync('$include\n$content', flush: true);
       }
     }
@@ -332,10 +336,18 @@ class CocoaPods {
         _logger.printStatus(stderr, indent: 4);
       }
     }
+
     if (result.exitCode != 0) {
       invalidatePodInstallOutput(xcodeProject);
       _diagnosePodInstallFailure(result);
       throwToolExit('Error running pod install');
+    } else if (xcodeProject.podfileLock.existsSync()) {
+      // Even if the Podfile.lock didn't change, update its modified date to now
+      // so Podfile.lock is newer than Podfile.
+      _processManager.runSync(
+        <String>['touch', xcodeProject.podfileLock.path],
+        workingDirectory: _fileSystem.path.dirname(xcodeProject.podfile.path),
+      );
     }
   }
 
@@ -389,7 +401,6 @@ class CocoaPods {
               'To regenerate the Podfile, run:\n'
               '$podfileIosMigrationInstructions\n',
         );
-        return;
       }
     }
     // Most of the pod and plugin parsing logic was moved from the Podfile
@@ -397,7 +408,7 @@ class CocoaPods {
     // the old parsed .flutter-plugins file, prompt the regeneration. Old line was:
     // plugin_pods = parse_KV_file('../.flutter-plugins')
     if (xcodeProject.podfile.existsSync() &&
-      xcodeProject.podfile.readAsStringSync().contains('.flutter-plugins\'')) {
+      xcodeProject.podfile.readAsStringSync().contains(".flutter-plugins'")) {
       const String error = 'Warning: Podfile is out of date\n'
           '$outOfDatePluginsPodfileConsequence\n'
           'To regenerate the Podfile, run:\n';
